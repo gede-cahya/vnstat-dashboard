@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Traffic Analytics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="chart.umd.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chart.js';"></script>
+    <style>
+        :root {
+            --bg-base: #0f0d1a;
+            --bg-surface: #161325;
+            --bg-surface-hover: #1f1b33;
+            --border-color: rgba(122, 131, 194, 0.16);
+            --border-glow: rgba(122, 131, 194, 0.3);
+            
+            --text-primary: #f0f2fe;
+            --text-secondary: #a9b1d6;
+            --text-muted: #565f89;
+            
+            --rx-color: #4fd6be;
+            --rx-glow: rgba(79, 214, 190, 0.25);
+            --tx-color: #f7768e;
+            --tx-glow: rgba(247, 118, 142, 0.25);
+            --accent-purple: #bb9af7;
+            --accent-blue: #7aa2f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            padding: 1.5rem;
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 10%, rgba(122, 131, 194, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(247, 118, 142, 0.05) 0%, transparent 40%);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-base);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-surface-hover);
+            border-radius: 4px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #ffffff 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .pulse-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 99px;
+            background: rgba(79, 214, 190, 0.1);
+            color: var(--rx-color);
+            border: 1px solid rgba(79, 214, 190, 0.3);
+            font-weight: 500;
+        }
+
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--rx-color);
+            box-shadow: 0 0 8px var(--rx-color);
+            animation: blink 1.8s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        select, button {
+            font-family: inherit;
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        select:hover, button:hover {
+            border-color: var(--border-glow);
+            background: var(--bg-surface-hover);
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.1rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--border-glow);
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+        }
+
+        .card-rx::before { background: var(--rx-color); }
+        .card-tx::before { background: var(--tx-color); }
+        .card-total::before { background: var(--accent-purple); }
+        .card-avg::before { background: var(--accent-blue); }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 500;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: -0.03em;
+        }
+
+        .metric-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.3rem;
+        }
+
+        /* Chart Card */
+        .chart-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .tab-group {
+            display: flex;
+            background: rgba(15, 13, 26, 0.6);
+            padding: 3px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .tab-btn {
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            padding: 0.35rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border-radius: 6px;
+        }
+
+        .tab-btn.active {
+            background: var(--bg-surface-hover);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 280px;
+            width: 100%;
+        }
+
+        /* Table Card */
+        .table-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .table-header {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.6rem 0.8rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.03em;
+        }
+
+        td {
+            padding: 0.75rem 0.8rem;
+            border-bottom: 1px solid rgba(122, 131, 194, 0.08);
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        tr:hover td {
+            background: var(--bg-surface-hover);
+            color: var(--text-primary);
+        }
+
+        .bar-cell {
+            width: 30%;
+        }
+
+        .progress-bar-bg {
+            height: 6px;
+            background: rgba(122, 131, 194, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--rx-color), var(--tx-color));
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .spinner-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--rx-color);
+            box-shadow: 0 0 12px var(--rx-color);
+            animation: pulseGlow 1.2s infinite ease-in-out;
+            display: inline-block;
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(0.8); opacity: 0.4; }
+            50% { transform: scale(1.3); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-title">
+            <h1>Analytics Penggunaan Internet</h1>
+            <div class="pulse-badge" id="liveSpeedBadge">
+                <div class="pulse-dot"></div>
+                ⚡ Live Speed: 0 B/s
+            </div>
+        </div>
+        <div class="controls">
+            <select id="interfaceSelect" onchange="renderAll()"></select>
+            <button onclick="fetchData()">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <div class="metrics-grid">
+        <div class="metric-card card-rx">
+            <div class="metric-label">Total Download (Rx)</div>
+            <div class="metric-value" id="valRx">-</div>
+            <div class="metric-sub" id="subRx">Akumulasi kuota masuk</div>
+        </div>
+        <div class="metric-card card-tx">
+            <div class="metric-label">Total Upload (Tx)</div>
+            <div class="metric-value" id="valTx">-</div>
+            <div class="metric-sub" id="subTx">Akumulasi kuota keluar</div>
+        </div>
+        <div class="metric-card card-total">
+            <div class="metric-label">Total Penggunaan</div>
+            <div class="metric-value" id="valTotal">-</div>
+            <div class="metric-sub">Download + Upload</div>
+        </div>
+        <div class="metric-card card-avg">
+            <div class="metric-label">Rata-rata Harian</div>
+            <div class="metric-value" id="valAvg">-</div>
+            <div class="metric-sub">Per hari (30 hari terakhir)</div>
+        </div>
+    </div>
+
+    <div class="chart-card">
+        <div class="chart-header">
+            <div style="font-weight: 600; font-size: 1rem;">Grafik Penggunaan Data</div>
+            <div class="tab-group">
+                <button class="tab-btn active" onclick="switchView('day', this)">Harian</button>
+                <button class="tab-btn" onclick="switchView('month', this)">Bulanan</button>
+            </div>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="usageChart"></canvas>
+        </div>
+    </div>
+
+    <div class="table-card" style="margin-bottom: 24px;">
+        <div class="table-header">📱 Rekap Penggunaan Internet Per Aplikasi (Hari Ini)</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>No</th>
+                    <th>Nama Aplikasi</th>
+                    <th>Download (Rx)</th>
+                    <th>Upload (Tx)</th>
+                    <th>Total Penggunaan</th>
+                    <th class="bar-cell">Visualisasi Ratio</th>
+                </tr>
+            </thead>
+            <tbody id="appTableBody">
+                <tr class="empty-msg">
+                    <td colspan="6" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem;">
+                            <div class="spinner-dot"></div>
+                            <span>Memindai aktivitas jaringan aplikasi real-time...</span>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-card">
+        <div class="table-header">Rincian Data Histori</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Waktu / Tanggal</th>
+                    <th>Download (Rx)</th>
+                    <th>Upload (Tx)</th>
+                    <th>Total</th>
+                    <th class="bar-cell">Visualisasi Ratio</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr>
+                    <td colspan="5" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem;">
+                            <div class="spinner-dot"></div>
+                            <span>Memuat statistik vnStat...</span>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let rawData = null;
+        let chartInstance = null;
+        let currentView = 'day';
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function fetchData() {
+            try {
+                const host = (window.location.protocol === 'file:' || !window.location.host) ? 'http://127.0.0.1:9876' : '';
+                const res = await fetch(`${host}/api/data`);
+                rawData = await res.json();
+                populateInterfaces();
+                renderAll();
+                fetchAppData();
+            } catch (err) {
+                console.error("Gagal mengambil data, retrying...", err);
+                setTimeout(fetchData, 500);
+            }
+        }
+
+        async function fetchAppData() {
+            try {
+                const host = (window.location.protocol === 'file:' || !window.location.host) ? 'http://127.0.0.1:9876' : '';
+                const res = await fetch(`${host}/api/app_data`);
+                const data = await res.json();
+                
+                if (data.speed_rx !== undefined || data.speed_tx !== undefined) {
+                    const badge = document.getElementById('liveSpeedBadge');
+                    if (badge) {
+                        const rxS = formatBytes(data.speed_rx || 0) + '/s ↓';
+                        const txS = formatBytes(data.speed_tx || 0) + '/s ↑';
+                        badge.innerHTML = `<div class="pulse-dot"></div>⚡ Live Speed: ${rxS} | ${txS}`;
+                    }
+                }
+                renderAppTable(data);
+            } catch (err) {
+                console.error("Gagal mengambil data aplikasi:", err);
+            }
+        }
+
+        function renderAppTable(appData) {
+            const tbody = document.getElementById('appTableBody');
+            if (!appData || !appData.apps || Object.keys(appData.apps).length === 0) {
+                if (!tbody.querySelector('.empty-msg')) {
+                    tbody.innerHTML = `
+                        <tr class="empty-msg">
+                            <td colspan="6" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">
+                                <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem;">
+                                    <div class="spinner-dot"></div>
+                                    <span>Memindai aktivitas jaringan aplikasi real-time...</span>
+                                </div>
+                            </td>
+                        </tr>`;
+                }
+                return;
+            }
+
+            const emptyMsg = tbody.querySelector('.empty-msg');
+            if (emptyMsg) emptyMsg.remove();
+
+            const sortedApps = Object.entries(appData.apps).map(([name, usage]) => ({
+                name,
+                rx: usage.rx || 0,
+                tx: usage.tx || 0,
+                total: (usage.rx || 0) + (usage.tx || 0)
+            })).filter(app => app.total > 100);
+            sortedApps.sort((a, b) => b.total - a.total);
+
+            let maxTotal = sortedApps[0] ? sortedApps[0].total : 1;
+            if (maxTotal === 0) maxTotal = 1;
+
+            sortedApps.forEach((app, idx) => {
+                const pct = Math.min(100, Math.round((app.total / maxTotal) * 100));
+                let tr = tbody.querySelector(`tr[data-app-name="${CSS.escape(app.name)}"]`);
+
+                if (!tr) {
+                    tr = document.createElement('tr');
+                    tr.setAttribute('data-app-name', app.name);
+                    tr.innerHTML = `
+                        <td class="cell-idx">${idx + 1}</td>
+                        <td class="cell-name"><strong style="color: var(--text-main);">${app.name}</strong></td>
+                        <td class="cell-rx">${formatBytes(app.rx)}</td>
+                        <td class="cell-tx">${formatBytes(app.tx)}</td>
+                        <td class="cell-total"><strong style="color: var(--rx-color);">${formatBytes(app.total)}</strong></td>
+                        <td class="bar-cell">
+                            <div class="progress-bar-bg">
+                                <div class="progress-bar-fill" style="width: ${pct}%;"></div>
+                            </div>
+                        </td>
+                    `;
+                } else {
+                    const cellIdx = tr.querySelector('.cell-idx');
+                    const cellRx = tr.querySelector('.cell-rx');
+                    const cellTx = tr.querySelector('.cell-tx');
+                    const cellTotal = tr.querySelector('.cell-total');
+                    const barFill = tr.querySelector('.progress-bar-fill');
+
+                    if (cellIdx && cellIdx.textContent !== String(idx + 1)) cellIdx.textContent = idx + 1;
+                    if (cellRx && cellRx.textContent !== formatBytes(app.rx)) cellRx.textContent = formatBytes(app.rx);
+                    if (cellTx && cellTx.textContent !== formatBytes(app.tx)) cellTx.textContent = formatBytes(app.tx);
+                    if (cellTotal) {
+                        const formatted = formatBytes(app.total);
+                        if (cellTotal.textContent !== formatted) {
+                            cellTotal.innerHTML = `<strong style="color: var(--rx-color);">${formatted}</strong>`;
+                        }
+                    }
+                    if (barFill) {
+                        barFill.style.width = `${pct}%`;
+                    }
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        function getIfaceTotal(iface) {
+            if (!iface || !iface.traffic) return 0;
+            let sum = 0;
+            if (iface.traffic.day && Array.isArray(iface.traffic.day)) {
+                iface.traffic.day.forEach(d => sum += (d.rx || 0) + (d.tx || 0));
+            }
+            if (sum === 0 && iface.traffic.month && Array.isArray(iface.traffic.month)) {
+                iface.traffic.month.forEach(m => sum += (m.rx || 0) + (m.tx || 0));
+            }
+            return sum;
+        }
+
+        function populateInterfaces() {
+            const select = document.getElementById('interfaceSelect');
+            if (!rawData || !rawData.interfaces) return;
+            const current = select.value;
+            select.innerHTML = '';
+
+            let validIfaces = rawData.interfaces.filter(i => {
+                const name = i.name || '';
+                return !name.startsWith('br-') && !name.startsWith('veth') && !name.startsWith('docker') && name !== 'lo';
+            });
+            if (validIfaces.length === 0) validIfaces = rawData.interfaces;
+
+            validIfaces.sort((a, b) => getIfaceTotal(b) - getIfaceTotal(a));
+
+            validIfaces.forEach(iface => {
+                const opt = document.createElement('option');
+                opt.value = iface.name;
+                const tot = getIfaceTotal(iface);
+                opt.textContent = `Interface: ${iface.name} (${formatBytes(tot)})`;
+                select.appendChild(opt);
+            });
+
+            if (current && select.querySelector(`option[value="${current}"]`)) {
+                select.value = current;
+            } else if (select.options.length > 0) {
+                select.value = select.options[0].value;
+            }
+        }
+
+        function switchView(view, btn) {
+            currentView = view;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderAll();
+        }
+
+        function renderAll() {
+            if (!rawData || !rawData.interfaces) return;
+            const select = document.getElementById('interfaceSelect');
+            const selectedIfaceName = select.value || (select.options.length > 0 ? select.options[0].value : null) || rawData.interfaces[0].name;
+            const iface = rawData.interfaces.find(i => i.name === selectedIfaceName) || rawData.interfaces[0];
+
+            const trafficData = iface.traffic[currentView] || [];
+            
+            // Calculate Top Metrics
+            let totalRx = 0, totalTx = 0;
+            trafficData.forEach(item => {
+                totalRx += item.rx || 0;
+                totalTx += item.tx || 0;
+            });
+
+            document.getElementById('valRx').textContent = formatBytes(totalRx);
+            document.getElementById('valTx').textContent = formatBytes(totalTx);
+            document.getElementById('valTotal').textContent = formatBytes(totalRx + totalTx);
+            
+            const count = Math.max(1, trafficData.length);
+            document.getElementById('valAvg').textContent = formatBytes((totalRx + totalTx) / count);
+
+            renderChart(trafficData);
+            renderTable(trafficData);
+        }
+
+        function renderChart(trafficData) {
+            if (typeof Chart === 'undefined') return;
+            const canvas = document.getElementById('usageChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            const labels = trafficData.map(d => {
+                if (currentView === 'day') {
+                    return `${d.date.day}/${d.date.month}`;
+                } else {
+                    return `${d.date.month}/${d.date.year}`;
+                }
+            });
+
+            const rxData = trafficData.map(d => (d.rx / (1024 * 1024)).toFixed(2)); // in MB
+            const txData = trafficData.map(d => (d.tx / (1024 * 1024)).toFixed(2)); // in MB
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const gradientRx = ctx.createLinearGradient(0, 0, 0, 250);
+            gradientRx.addColorStop(0, 'rgba(79, 214, 190, 0.4)');
+            gradientRx.addColorStop(1, 'rgba(79, 214, 190, 0.0)');
+
+            const gradientTx = ctx.createLinearGradient(0, 0, 0, 250);
+            gradientTx.addColorStop(0, 'rgba(247, 118, 142, 0.4)');
+            gradientTx.addColorStop(1, 'rgba(247, 118, 142, 0.0)');
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Download',
+                            data: rxData,
+                            borderColor: '#4fd6be',
+                            backgroundColor: gradientRx,
+                            fill: true,
+                            tension: 0.35,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#4fd6be',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Upload',
+                            data: txData,
+                            borderColor: '#f7768e',
+                            backgroundColor: gradientTx,
+                            fill: true,
+                            tension: 0.35,
+                            borderWidth: 2,
+                            pointBackgroundColor: '#f7768e',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#a9b1d6',
+                                font: { family: 'Outfit', size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#161325',
+                            titleColor: '#ffffff',
+                            bodyColor: '#a9b1d6',
+                            borderColor: 'rgba(122, 131, 194, 0.3)',
+                            borderWidth: 1,
+                            padding: 10,
+                            callbacks: {
+                                label: function(context) {
+                                    const bytes = context.raw * 1024 * 1024;
+                                    return `${context.dataset.label}: ${formatBytes(bytes)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(122, 131, 194, 0.06)' },
+                            ticks: { color: '#565f89', font: { family: 'Outfit' } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(122, 131, 194, 0.08)' },
+                            ticks: {
+                                color: '#565f89',
+                                font: { family: 'JetBrains Mono' },
+                                callback: function(value) {
+                                    return formatBytes(value * 1024 * 1024);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTable(trafficData) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            if (trafficData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Belum ada data tercatat.</td></tr>';
+                return;
+            }
+
+            let maxTotal = 1;
+            trafficData.forEach(d => {
+                const tot = (d.rx || 0) + (d.tx || 0);
+                if (tot > maxTotal) maxTotal = tot;
+            });
+
+            // Display in reverse order (newest first)
+            [...trafficData].reverse().forEach(d => {
+                const tr = document.createElement('tr');
+                const rxFormatted = formatBytes(d.rx);
+                const txFormatted = formatBytes(d.tx);
+                const totalFormatted = formatBytes((d.rx || 0) + (d.tx || 0));
+                
+                const dateStr = currentView === 'day' 
+                    ? `${d.date.year}-${String(d.date.month).padStart(2,'0')}-${String(d.date.day).padStart(2,'0')}`
+                    : `${d.date.year}-${String(d.date.month).padStart(2,'0')}`;
+
+                const pct = Math.min(100, Math.round((((d.rx || 0) + (d.tx || 0)) / maxTotal) * 100));
+
+                tr.innerHTML = `
+                    <td style="color: var(--text-primary); font-weight: 500;">${dateStr}</td>
+                    <td style="color: var(--rx-color);">${rxFormatted}</td>
+                    <td style="color: var(--tx-color);">${txFormatted}</td>
+                    <td style="font-weight: 700;">${totalFormatted}</td>
+                    <td class="bar-cell">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" style="width: ${pct}%;"></div>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        fetchData();
+        setInterval(fetchData, 3000);
+        setInterval(fetchAppData, 1000);
+    </script>
+</body>
+</html>
