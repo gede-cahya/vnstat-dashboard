@@ -762,7 +762,8 @@
         
         let currentPage = 1;
         let pageSize = 10;
-        let selectedMonthKey = 'all'; // 'all' or 'YYYY-MM'
+        let lastChartStateKey = '';
+        let lastRawDataHash = '';
 
         const MONTH_NAMES_ID = [
             '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -789,14 +790,20 @@
             try {
                 const host = (window.location.protocol === 'file:' || !window.location.host) ? 'http://127.0.0.1:9876' : '';
                 const res = await fetch(`${host}/api/data`);
-                rawData = await res.json();
-                populateInterfaces();
-                populateMonthSelectors();
-                renderAll();
+                const json = await res.json();
+                
+                const newHash = JSON.stringify(json);
+                if (newHash !== lastRawDataHash || !rawData) {
+                    lastRawDataHash = newHash;
+                    rawData = json;
+                    populateInterfaces();
+                    populateMonthSelectors();
+                    renderAll();
+                }
                 fetchAppData();
             } catch (err) {
                 console.error("Gagal mengambil data vnstat:", err);
-                setTimeout(fetchData, 1000);
+                setTimeout(fetchData, 1500);
             }
         }
 
@@ -933,7 +940,7 @@
         function toggleChartType() {
             chartType = (chartType === 'line') ? 'bar' : 'line';
             document.getElementById('btnChartType').textContent = (chartType === 'line') ? '📊 Batang' : '📈 Garis';
-            renderChartSection();
+            renderChartSection(true); // force redraw on type change
         }
 
         function renderAll() {
@@ -988,7 +995,6 @@
                 currMonthRx = currMonthItem.rx;
                 currMonthTx = currMonthItem.tx;
             } else {
-                // Sum from days of this month
                 days.filter(d => d.date.year === currYear && d.date.month === currMonth).forEach(d => {
                     currMonthRx += d.rx;
                     currMonthTx += d.tx;
@@ -1099,7 +1105,6 @@
             });
 
             return Object.values(weeksMap).map(w => {
-                // Find start date and end date
                 const firstDay = w.days[0];
                 const lastDay = w.days[w.days.length - 1];
                 const startStr = `${String(firstDay.date.day).padStart(2, '0')} ${MONTH_NAMES_SHORT[firstDay.date.month]}`;
@@ -1114,9 +1119,9 @@
         }
 
         // ==========================================
-        // 3. Chart Rendering
+        // 3. Flicker-Free Chart Rendering
         // ==========================================
-        function renderChartSection() {
+        function renderChartSection(forceRebuild = false) {
             if (typeof Chart === 'undefined') return;
             const iface = getSelectedInterface();
             if (!iface || !iface.traffic) return;
@@ -1141,30 +1146,29 @@
             let txDataMB = [];
 
             if (chartTab === 'day') {
-                // DAILY VIEW
                 labels = days.map(d => {
                     const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
                     const dayName = DAY_NAMES_ID[dt.getDay()] || '';
                     return `${d.date.day} ${MONTH_NAMES_SHORT[d.date.month]} (${dayName.slice(0,3)})`;
                 });
-                rxDataMB = days.map(d => (d.rx / (1024 * 1024)).toFixed(2));
-                txDataMB = days.map(d => (d.tx / (1024 * 1024)).toFixed(2));
+                rxDataMB = days.map(d => Number((d.rx / (1024 * 1024)).toFixed(2)));
+                txDataMB = days.map(d => Number((d.tx / (1024 * 1024)).toFixed(2)));
             } else if (chartTab === 'week') {
-                // WEEKLY VIEW
                 const weeks = groupDaysIntoWeeks(days);
                 labels = weeks.map(w => w.shortLabel);
-                rxDataMB = weeks.map(w => (w.rx / (1024 * 1024)).toFixed(2));
-                txDataMB = weeks.map(w => (w.tx / (1024 * 1024)).toFixed(2));
+                rxDataMB = weeks.map(w => Number((w.rx / (1024 * 1024)).toFixed(2)));
+                txDataMB = weeks.map(w => Number((w.tx / (1024 * 1024)).toFixed(2)));
             } else if (chartTab === 'month') {
-                // MONTHLY VIEW (Separate months clearly)
                 labels = months.map(m => `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`);
-                rxDataMB = months.map(m => (m.rx / (1024 * 1024)).toFixed(2));
-                txDataMB = months.map(m => (m.tx / (1024 * 1024)).toFixed(2));
+                rxDataMB = months.map(m => Number((m.rx / (1024 * 1024)).toFixed(2)));
+                txDataMB = months.map(m => Number((m.tx / (1024 * 1024)).toFixed(2)));
             }
 
-            if (chartInstance) {
-                chartInstance.destroy();
+            const stateKey = `${chartTab}_${monthFilter}_${chartType}_${labels.join('|')}_${rxDataMB.join(',')}_${txDataMB.join(',')}`;
+            if (!forceRebuild && stateKey === lastChartStateKey && chartInstance) {
+                return; // Nothing changed, avoid re-rendering
             }
+            lastChartStateKey = stateKey;
 
             const gradientRx = ctx.createLinearGradient(0, 0, 0, 260);
             gradientRx.addColorStop(0, 'rgba(79, 214, 190, 0.45)');
@@ -1173,6 +1177,19 @@
             const gradientTx = ctx.createLinearGradient(0, 0, 0, 260);
             gradientTx.addColorStop(0, 'rgba(247, 118, 142, 0.45)');
             gradientTx.addColorStop(1, 'rgba(247, 118, 142, 0.0)');
+
+            // If chart instance exists and type is identical, update in-place without flashing/destroying!
+            if (chartInstance && chartInstance.config.type === chartType && !forceRebuild) {
+                chartInstance.data.labels = labels;
+                chartInstance.data.datasets[0].data = rxDataMB;
+                chartInstance.data.datasets[1].data = txDataMB;
+                chartInstance.update('none'); // Update without entry animation flicker!
+                return;
+            }
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
 
             chartInstance = new Chart(ctx, {
                 type: chartType,
@@ -1210,6 +1227,9 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: {
+                        duration: 300
+                    },
                     interaction: {
                         mode: 'index',
                         intersect: false
