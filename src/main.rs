@@ -442,10 +442,13 @@ fn handle_http_request(request: tiny_http::Request) {
             clean_url.trim_start_matches('/')
         };
 
+        let local_cur = PathBuf::from(filename);
         let path = PathBuf::from(&home).join(".local/share/vnstat-rust-gui").join(filename);
         let fallback_path = PathBuf::from(&home).join(".local/share/vnstat-dashboard").join(filename);
 
-        let bytes_opt = fs::read(&path).or_else(|_| fs::read(&fallback_path));
+        let bytes_opt = fs::read(&local_cur)
+            .or_else(|_| fs::read(&path))
+            .or_else(|_| fs::read(&fallback_path));
 
         if let Ok(bytes) = bytes_opt {
             let content_type = if filename.ends_with(".js") {

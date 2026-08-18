@@ -3,29 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Network Traffic Analytics</title>
+    <title>Network Traffic Analytics - vnStat</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="chart.umd.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/chart.js';"></script>
     <style>
         :root {
-            --bg-base: #0f0d1a;
-            --bg-surface: #161325;
-            --bg-surface-hover: #1f1b33;
+            --bg-base: #0c0b14;
+            --bg-surface: #141224;
+            --bg-surface-elevated: #1b1830;
+            --bg-surface-hover: #231f3d;
             --border-color: rgba(122, 131, 194, 0.16);
-            --border-glow: rgba(122, 131, 194, 0.3);
+            --border-glow: rgba(122, 131, 194, 0.35);
             
             --text-primary: #f0f2fe;
             --text-secondary: #a9b1d6;
             --text-muted: #565f89;
             
             --rx-color: #4fd6be;
+            --rx-bg: rgba(79, 214, 190, 0.12);
             --rx-glow: rgba(79, 214, 190, 0.25);
+            
             --tx-color: #f7768e;
+            --tx-bg: rgba(247, 118, 142, 0.12);
             --tx-glow: rgba(247, 118, 142, 0.25);
+            
             --accent-purple: #bb9af7;
+            --accent-purple-bg: rgba(187, 154, 247, 0.12);
             --accent-blue: #7aa2f7;
+            --accent-blue-bg: rgba(122, 162, 247, 0.12);
+            --accent-amber: #e0af68;
+            --accent-amber-bg: rgba(224, 175, 104, 0.12);
         }
 
         * {
@@ -42,8 +51,8 @@
             min-height: 100vh;
             overflow-x: hidden;
             background-image: 
-                radial-gradient(circle at 10% 10%, rgba(122, 131, 194, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 90% 90%, rgba(247, 118, 142, 0.05) 0%, transparent 40%);
+                radial-gradient(circle at 15% 10%, rgba(122, 131, 194, 0.07) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(247, 118, 142, 0.05) 0%, transparent 45%);
         }
 
         /* Custom Scrollbar */
@@ -59,23 +68,27 @@
             border-radius: 4px;
         }
 
+        /* Header */
         .header {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
             margin-bottom: 1.5rem;
-            padding-bottom: 1rem;
+            padding-bottom: 1.25rem;
             border-bottom: 1px solid var(--border-color);
         }
 
         .header-title {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.85rem;
+            flex-wrap: wrap;
         }
 
         .header-title h1 {
-            font-size: 1.4rem;
+            font-size: 1.35rem;
             font-weight: 700;
             letter-spacing: -0.02em;
             background: linear-gradient(135deg, #ffffff 0%, var(--text-secondary) 100%);
@@ -86,19 +99,20 @@
         .pulse-badge {
             display: inline-flex;
             align-items: center;
-            gap: 0.4rem;
-            font-size: 0.75rem;
-            padding: 0.25rem 0.6rem;
+            gap: 0.45rem;
+            font-size: 0.78rem;
+            padding: 0.3rem 0.75rem;
             border-radius: 99px;
             background: rgba(79, 214, 190, 0.1);
             color: var(--rx-color);
             border: 1px solid rgba(79, 214, 190, 0.3);
-            font-weight: 500;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
         }
 
         .pulse-dot {
-            width: 6px;
-            height: 6px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background-color: var(--rx-color);
             box-shadow: 0 0 8px var(--rx-color);
@@ -106,24 +120,25 @@
         }
 
         @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.75); }
         }
 
         .controls {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.65rem;
+            flex-wrap: wrap;
         }
 
-        select, button {
+        select, button, input {
             font-family: inherit;
             background: var(--bg-surface);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
             padding: 0.45rem 0.85rem;
             border-radius: 8px;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             outline: none;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -134,10 +149,26 @@
             background: var(--bg-surface-hover);
         }
 
-        /* Metrics Grid */
+        button:active {
+            transform: scale(0.97);
+        }
+
+        /* Grouped Metrics Section */
+        .section-label {
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -146,15 +177,19 @@
             background: var(--bg-surface);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 1.1rem;
+            padding: 1.15rem;
             position: relative;
             overflow: hidden;
-            transition: transform 0.2s ease, border-color 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
         .metric-card:hover {
             transform: translateY(-2px);
             border-color: var(--border-glow);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
         }
 
         .metric-card::before {
@@ -162,35 +197,95 @@
             position: absolute;
             top: 0;
             left: 0;
-            width: 3px;
+            width: 4px;
             height: 100%;
         }
 
-        .card-rx::before { background: var(--rx-color); }
-        .card-tx::before { background: var(--tx-color); }
-        .card-total::before { background: var(--accent-purple); }
-        .card-avg::before { background: var(--accent-blue); }
+        .card-today::before { background: var(--rx-color); }
+        .card-month::before { background: var(--accent-purple); }
+        .card-prev-month::before { background: var(--accent-amber); }
+        .card-total::before { background: var(--accent-blue); }
 
-        .metric-label {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            margin-bottom: 0.4rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            font-weight: 500;
+        .card-header-line {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
         }
 
-        .metric-value {
-            font-size: 1.5rem;
+        .card-tag {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 0.18rem 0.5rem;
+            border-radius: 6px;
+        }
+
+        .tag-today { background: var(--rx-bg); color: var(--rx-color); }
+        .tag-month { background: var(--accent-purple-bg); color: var(--accent-purple); }
+        .tag-prev { background: var(--accent-amber-bg); color: var(--accent-amber); }
+        .tag-total { background: var(--accent-blue-bg); color: var(--accent-blue); }
+
+        .metric-main-value {
+            font-size: 1.45rem;
             font-weight: 700;
             font-family: 'JetBrains Mono', monospace;
             letter-spacing: -0.03em;
+            color: #ffffff;
+            margin-bottom: 0.65rem;
         }
 
-        .metric-sub {
-            font-size: 0.75rem;
+        .metric-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            background: rgba(12, 11, 20, 0.45);
+            padding: 0.5rem 0.65rem;
+            border-radius: 8px;
+            border: 1px solid rgba(122, 131, 194, 0.08);
+            margin-bottom: 0.5rem;
+        }
+
+        .breakdown-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.76rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .breakdown-rx { color: var(--rx-color); }
+        .breakdown-tx { color: var(--tx-color); }
+
+        .card-subtext {
+            font-size: 0.72rem;
             color: var(--text-muted);
-            margin-top: 0.3rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Dual Proportion Progress Bar */
+        .ratio-bar-wrapper {
+            height: 5px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            margin-top: 0.2rem;
+        }
+
+        .ratio-bar-rx {
+            height: 100%;
+            background: var(--rx-color);
+            transition: width 0.4s ease;
+        }
+
+        .ratio-bar-tx {
+            height: 100%;
+            background: var(--tx-color);
+            transition: width 0.4s ease;
         }
 
         /* Chart Card */
@@ -206,77 +301,113 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem;
             margin-bottom: 1rem;
+        }
+
+        .chart-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .chart-title {
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-primary);
         }
 
         .tab-group {
             display: flex;
-            background: rgba(15, 13, 26, 0.6);
+            background: rgba(12, 11, 20, 0.7);
             padding: 3px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
+            gap: 2px;
         }
 
         .tab-btn {
             border: none;
             background: transparent;
             color: var(--text-secondary);
-            padding: 0.35rem 0.8rem;
+            padding: 0.35rem 0.85rem;
             font-size: 0.8rem;
             font-weight: 500;
             border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
         .tab-btn.active {
             background: var(--bg-surface-hover);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            font-weight: 600;
         }
 
         .chart-wrapper {
             position: relative;
-            height: 280px;
+            height: 290px;
             width: 100%;
         }
 
-        /* Table Card */
+        /* Table Card & Controls */
         .table-card {
             background: var(--bg-surface);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 1.25rem;
+            margin-bottom: 1.5rem;
         }
 
-        .table-header {
+        .table-header-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .table-title {
             font-size: 1rem;
             font-weight: 600;
-            margin-bottom: 1rem;
             color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .table-filters {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.85rem;
+            font-size: 0.84rem;
         }
 
         th {
             text-align: left;
-            padding: 0.6rem 0.8rem;
+            padding: 0.65rem 0.8rem;
             color: var(--text-muted);
-            font-weight: 500;
+            font-weight: 600;
             border-bottom: 1px solid var(--border-color);
             text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.03em;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
         }
 
         td {
             padding: 0.75rem 0.8rem;
             border-bottom: 1px solid rgba(122, 131, 194, 0.08);
             color: var(--text-secondary);
-            font-family: 'JetBrains Mono', monospace;
         }
 
         tr:hover td {
@@ -284,27 +415,68 @@
             color: var(--text-primary);
         }
 
+        .mono-val {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
         .bar-cell {
-            width: 30%;
+            width: 25%;
+            min-width: 120px;
         }
 
-        .progress-bar-bg {
-            height: 6px;
-            background: rgba(122, 131, 194, 0.1);
-            border-radius: 3px;
-            overflow: hidden;
+        .badge-date {
+            font-weight: 500;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
         }
 
-        .progress-bar-fill {
-            height: 100%;
-            border-radius: 3px;
-            background: linear-gradient(90deg, var(--rx-color), var(--tx-color));
-            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        .pill-tag {
+            font-size: 0.65rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .pill-today { background: var(--rx-bg); color: var(--rx-color); }
+        .pill-current { background: var(--accent-purple-bg); color: var(--accent-purple); }
+
+        /* Pagination Bar */
+        .pagination-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            padding-top: 0.85rem;
+            border-top: 1px solid rgba(122, 131, 194, 0.08);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .page-btn {
+            padding: 0.3rem 0.65rem;
+            font-size: 0.78rem;
+            border-radius: 6px;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            border-color: transparent;
         }
 
         .spinner-dot {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: var(--rx-color);
             box-shadow: 0 0 12px var(--rx-color);
@@ -316,53 +488,169 @@
             0%, 100% { transform: scale(0.8); opacity: 0.4; }
             50% { transform: scale(1.3); opacity: 1; }
         }
+
+        @media (max-width: 768px) {
+            body { padding: 1rem; }
+            .metrics-grid { grid-template-columns: 1fr; }
+            .bar-cell { display: none; }
+        }
     </style>
 </head>
 <body>
 
+    <!-- Header Section -->
     <div class="header">
         <div class="header-title">
-            <h1>Analytics Penggunaan Internet</h1>
+            <h1>🌐 Network Traffic Analytics</h1>
             <div class="pulse-badge" id="liveSpeedBadge">
                 <div class="pulse-dot"></div>
                 ⚡ Live Speed: 0 B/s
             </div>
         </div>
         <div class="controls">
-            <select id="interfaceSelect" onchange="renderAll()"></select>
-            <button onclick="fetchData()">🔄 Refresh</button>
+            <select id="interfaceSelect" onchange="onInterfaceChange()" title="Pilih Interface Jaringan"></select>
+            <button onclick="fetchData()" title="Muat ulang data vnStat">🔄 Refresh</button>
         </div>
     </div>
 
+    <!-- Grouped Metrics Summary -->
+    <div class="section-label">
+        <span>📊 Ringkasan Penggunaan Data (Harian &amp; Bulanan)</span>
+    </div>
+    
     <div class="metrics-grid">
-        <div class="metric-card card-rx">
-            <div class="metric-label">Total Download (Rx)</div>
-            <div class="metric-value" id="valRx">-</div>
-            <div class="metric-sub" id="subRx">Akumulasi kuota masuk</div>
+        <!-- 1. Hari Ini -->
+        <div class="metric-card card-today">
+            <div>
+                <div class="card-header-line">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">📅 Hari Ini</span>
+                    <span class="card-tag tag-today" id="todayDateLabel">Hari Ini</span>
+                </div>
+                <div class="metric-main-value" id="valTodayTotal">0 B</div>
+                <div class="metric-breakdown">
+                    <div class="breakdown-row">
+                        <span class="breakdown-rx">↓ Download:</span>
+                        <span class="breakdown-rx" id="valTodayRx">0 B</span>
+                    </div>
+                    <div class="breakdown-row">
+                        <span class="breakdown-tx">↑ Upload:</span>
+                        <span class="breakdown-tx" id="valTodayTx">0 B</span>
+                    </div>
+                    <div class="ratio-bar-wrapper">
+                        <div class="ratio-bar-rx" id="todayRatioRx" style="width: 50%;"></div>
+                        <div class="ratio-bar-tx" id="todayRatioTx" style="width: 50%;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-subtext">
+                <span id="todaySubtext">Akumulasi penggunaan 24 jam</span>
+            </div>
         </div>
-        <div class="metric-card card-tx">
-            <div class="metric-label">Total Upload (Tx)</div>
-            <div class="metric-value" id="valTx">-</div>
-            <div class="metric-sub" id="subTx">Akumulasi kuota keluar</div>
+
+        <!-- 2. Bulan Ini -->
+        <div class="metric-card card-month">
+            <div>
+                <div class="card-header-line">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">📆 Bulan Berjalan</span>
+                    <span class="card-tag tag-month" id="currMonthLabel">Bulan Ini</span>
+                </div>
+                <div class="metric-main-value" id="valCurrMonthTotal">0 B</div>
+                <div class="metric-breakdown">
+                    <div class="breakdown-row">
+                        <span class="breakdown-rx">↓ Download:</span>
+                        <span class="breakdown-rx" id="valCurrMonthRx">0 B</span>
+                    </div>
+                    <div class="breakdown-row">
+                        <span class="breakdown-tx">↑ Upload:</span>
+                        <span class="breakdown-tx" id="valCurrMonthTx">0 B</span>
+                    </div>
+                    <div class="ratio-bar-wrapper">
+                        <div class="ratio-bar-rx" id="currMonthRatioRx" style="width: 50%;"></div>
+                        <div class="ratio-bar-tx" id="currMonthRatioTx" style="width: 50%;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-subtext">
+                <span>Rata-rata Harian:</span>
+                <strong class="mono-val" style="color: var(--accent-purple);" id="valCurrMonthAvg">-</strong>
+            </div>
         </div>
+
+        <!-- 3. Bulan Sebelumnya -->
+        <div class="metric-card card-prev-month">
+            <div>
+                <div class="card-header-line">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">📊 Bulan Sebelumnya</span>
+                    <span class="card-tag tag-prev" id="prevMonthLabel">Bulan Lalu</span>
+                </div>
+                <div class="metric-main-value" id="valPrevMonthTotal">0 B</div>
+                <div class="metric-breakdown">
+                    <div class="breakdown-row">
+                        <span class="breakdown-rx">↓ Download:</span>
+                        <span class="breakdown-rx" id="valPrevMonthRx">0 B</span>
+                    </div>
+                    <div class="breakdown-row">
+                        <span class="breakdown-tx">↑ Upload:</span>
+                        <span class="breakdown-tx" id="valPrevMonthTx">0 B</span>
+                    </div>
+                    <div class="ratio-bar-wrapper">
+                        <div class="ratio-bar-rx" id="prevMonthRatioRx" style="width: 50%;"></div>
+                        <div class="ratio-bar-tx" id="prevMonthRatioTx" style="width: 50%;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-subtext">
+                <span id="prevMonthSub">Perbandingan riwayat</span>
+                <span class="mono-val" style="color: var(--accent-amber);" id="prevMonthCompare">-</span>
+            </div>
+        </div>
+
+        <!-- 4. Total Akumulasi -->
         <div class="metric-card card-total">
-            <div class="metric-label">Total Penggunaan</div>
-            <div class="metric-value" id="valTotal">-</div>
-            <div class="metric-sub">Download + Upload</div>
-        </div>
-        <div class="metric-card card-avg">
-            <div class="metric-label">Rata-rata Harian</div>
-            <div class="metric-value" id="valAvg">-</div>
-            <div class="metric-sub">Per hari (30 hari terakhir)</div>
+            <div>
+                <div class="card-header-line">
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">🌐 Total Akumulasi</span>
+                    <span class="card-tag tag-total">All-Time</span>
+                </div>
+                <div class="metric-main-value" id="valGrandTotal">0 B</div>
+                <div class="metric-breakdown">
+                    <div class="breakdown-row">
+                        <span class="breakdown-rx">↓ Download:</span>
+                        <span class="breakdown-rx" id="valGrandRx">0 B</span>
+                    </div>
+                    <div class="breakdown-row">
+                        <span class="breakdown-tx">↑ Upload:</span>
+                        <span class="breakdown-tx" id="valGrandTx">0 B</span>
+                    </div>
+                    <div class="ratio-bar-wrapper">
+                        <div class="ratio-bar-rx" id="grandRatioRx" style="width: 50%;"></div>
+                        <div class="ratio-bar-tx" id="grandRatioTx" style="width: 50%;"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-subtext">
+                <span>Total tercatat di sistem</span>
+                <span class="mono-val" id="totalDaysCount">0 hari</span>
+            </div>
         </div>
     </div>
 
+    <!-- Chart Card -->
     <div class="chart-card">
         <div class="chart-header">
-            <div style="font-weight: 600; font-size: 1rem;">Grafik Penggunaan Data</div>
-            <div class="tab-group">
-                <button class="tab-btn active" onclick="switchView('day', this)">Harian</button>
-                <button class="tab-btn" onclick="switchView('month', this)">Bulanan</button>
+            <div class="chart-header-left">
+                <div class="chart-title">📈 Grafik Penggunaan Data</div>
+                <div class="tab-group">
+                    <button class="tab-btn active" id="btnTabDay" onclick="setChartTab('day')">📅 Harian</button>
+                    <button class="tab-btn" id="btnTabWeek" onclick="setChartTab('week')">📊 Mingguan</button>
+                    <button class="tab-btn" id="btnTabMonth" onclick="setChartTab('month')">📆 Bulanan</button>
+                </div>
+            </div>
+            <div class="controls">
+                <select id="chartMonthFilter" onchange="onChartFilterChange()" title="Pisahkan dan filter berdasarkan bulan">
+                    <option value="all">🌐 Semua Bulan</option>
+                </select>
+                <button onclick="toggleChartType()" id="btnChartType" title="Ubah tipe grafik">📊 Batang</button>
             </div>
         </div>
         <div class="chart-wrapper">
@@ -370,17 +658,27 @@
         </div>
     </div>
 
+    <!-- App Usage Tracker Table -->
     <div class="table-card" style="margin-bottom: 24px;">
-        <div class="table-header">📱 Rekap Penggunaan Internet Per Aplikasi (Hari Ini)</div>
+        <div class="table-header-bar">
+            <div class="table-title">📱 Rekap Bandwidth Per Aplikasi (Hari Ini Real-Time)</div>
+            <div class="controls">
+                <select id="appLimitSelect" onchange="renderAppTable(cachedAppData)">
+                    <option value="5">Top 5 Aplikasi</option>
+                    <option value="10" selected>Top 10 Aplikasi</option>
+                    <option value="all">Semua Aplikasi</option>
+                </select>
+            </div>
+        </div>
         <table>
             <thead>
                 <tr>
-                    <th>No</th>
+                    <th style="width: 50px;">No</th>
                     <th>Nama Aplikasi</th>
                     <th>Download (Rx)</th>
                     <th>Upload (Tx)</th>
                     <th>Total Penggunaan</th>
-                    <th class="bar-cell">Visualisasi Ratio</th>
+                    <th class="bar-cell">Visualisasi Rasio</th>
                 </tr>
             </thead>
             <tbody id="appTableBody">
@@ -396,55 +694,109 @@
         </table>
     </div>
 
+    <!-- History Table Card -->
     <div class="table-card">
-        <div class="table-header">Rincian Data Histori</div>
+        <div class="table-header-bar">
+            <div class="table-title">📋 Rincian Data Histori</div>
+            <div class="table-filters">
+                <div class="tab-group" style="margin-right: 0.25rem;">
+                    <button class="tab-btn active" id="btnHistDay" onclick="setHistGranularity('day')">Harian</button>
+                    <button class="tab-btn" id="btnHistWeek" onclick="setHistGranularity('week')">Mingguan</button>
+                    <button class="tab-btn" id="btnHistMonth" onclick="setHistGranularity('month')">Bulanan</button>
+                </div>
+                <select id="tableMonthFilter" onchange="onTableFilterChange()" title="Filter Data Berdasarkan Bulan">
+                    <option value="all">🌐 Semua Bulan</option>
+                </select>
+                <select id="pageSizeSelect" onchange="onPageSizeChange()" title="Jumlah baris per halaman">
+                    <option value="7">7 Baris</option>
+                    <option value="10" selected>10 Baris</option>
+                    <option value="15">15 Baris</option>
+                    <option value="30">30 Baris</option>
+                    <option value="all">Tampilkan Semua</option>
+                </select>
+            </div>
+        </div>
         <table>
             <thead>
                 <tr>
-                    <th>Waktu / Tanggal</th>
+                    <th style="width: 50px;">No</th>
+                    <th>Waktu / Periode</th>
                     <th>Download (Rx)</th>
                     <th>Upload (Tx)</th>
-                    <th>Total</th>
-                    <th class="bar-cell">Visualisasi Ratio</th>
+                    <th>Total Data</th>
+                    <th class="bar-cell">Proporsi Download : Upload</th>
                 </tr>
             </thead>
             <tbody id="tableBody">
                 <tr>
-                    <td colspan="5" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">
+                    <td colspan="6" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">
                         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem;">
                             <div class="spinner-dot"></div>
-                            <span>Memuat statistik vnStat...</span>
+                            <span>Memuat statistik data histori...</span>
                         </div>
                     </td>
                 </tr>
             </tbody>
         </table>
+
+        <!-- Pagination Controls -->
+        <div class="pagination-bar" id="paginationBar">
+            <div id="pageInfo">Menampilkan data...</div>
+            <div class="pagination-controls">
+                <button class="page-btn" id="btnFirstPage" onclick="goToPage(1)">⏮ Awal</button>
+                <button class="page-btn" id="btnPrevPage" onclick="changePage(-1)">◀ Prev</button>
+                <span id="pageCurrentLabel" style="font-family: 'JetBrains Mono'; padding: 0 0.5rem; font-weight: 600; color: var(--text-primary);">1 / 1</span>
+                <button class="page-btn" id="btnNextPage" onclick="changePage(1)">Next ▶</button>
+                <button class="page-btn" id="btnLastPage" onclick="goToLastPage()">Akhir ⏭</button>
+            </div>
+        </div>
     </div>
 
     <script>
         let rawData = null;
+        let cachedAppData = null;
         let chartInstance = null;
-        let currentView = 'day';
+        let chartTab = 'day'; // 'day', 'week', 'month'
+        let chartType = 'line'; // 'line' or 'bar'
+        let histGranularity = 'day'; // 'day', 'week', 'month'
+        
+        let currentPage = 1;
+        let pageSize = 10;
+        let selectedMonthKey = 'all'; // 'all' or 'YYYY-MM'
+
+        const MONTH_NAMES_ID = [
+            '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+        ];
+
+        const MONTH_NAMES_SHORT = [
+            '', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+            'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+        ];
+
+        const DAY_NAMES_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
         function formatBytes(bytes) {
-            if (!bytes || bytes === 0) return '0 B';
+            if (!bytes || bytes === 0 || isNaN(bytes)) return '0 B';
             const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        // Fetch data from backend
         async function fetchData() {
             try {
                 const host = (window.location.protocol === 'file:' || !window.location.host) ? 'http://127.0.0.1:9876' : '';
                 const res = await fetch(`${host}/api/data`);
                 rawData = await res.json();
                 populateInterfaces();
+                populateMonthSelectors();
                 renderAll();
                 fetchAppData();
             } catch (err) {
-                console.error("Gagal mengambil data, retrying...", err);
-                setTimeout(fetchData, 500);
+                console.error("Gagal mengambil data vnstat:", err);
+                setTimeout(fetchData, 1000);
             }
         }
 
@@ -453,6 +805,7 @@
                 const host = (window.location.protocol === 'file:' || !window.location.host) ? 'http://127.0.0.1:9876' : '';
                 const res = await fetch(`${host}/api/app_data`);
                 const data = await res.json();
+                cachedAppData = data;
                 
                 if (data.speed_rx !== undefined || data.speed_tx !== undefined) {
                     const badge = document.getElementById('liveSpeedBadge');
@@ -468,6 +821,451 @@
             }
         }
 
+        function getSelectedInterface() {
+            if (!rawData || !rawData.interfaces || rawData.interfaces.length === 0) return null;
+            const select = document.getElementById('interfaceSelect');
+            const selectedIfaceName = select.value;
+            return rawData.interfaces.find(i => i.name === selectedIfaceName) || rawData.interfaces[0];
+        }
+
+        function populateInterfaces() {
+            const select = document.getElementById('interfaceSelect');
+            if (!rawData || !rawData.interfaces) return;
+            const current = select.value;
+            select.innerHTML = '';
+
+            let validIfaces = rawData.interfaces.filter(i => {
+                const name = i.name || '';
+                return !name.startsWith('br-') && !name.startsWith('veth') && !name.startsWith('docker') && name !== 'lo';
+            });
+            if (validIfaces.length === 0) validIfaces = rawData.interfaces;
+
+            validIfaces.forEach(iface => {
+                const opt = document.createElement('option');
+                opt.value = iface.name;
+                const tot = (iface.traffic && iface.traffic.total) ? (iface.traffic.total.rx + iface.traffic.total.tx) : 0;
+                opt.textContent = `Interface: ${iface.name} (${formatBytes(tot)})`;
+                select.appendChild(opt);
+            });
+
+            if (current && select.querySelector(`option[value="${current}"]`)) {
+                select.value = current;
+            } else if (select.options.length > 0) {
+                select.value = select.options[0].value;
+            }
+        }
+
+        function populateMonthSelectors() {
+            const iface = getSelectedInterface();
+            if (!iface || !iface.traffic) return;
+
+            const chartSelect = document.getElementById('chartMonthFilter');
+            const tableSelect = document.getElementById('tableMonthFilter');
+            const prevChartVal = chartSelect.value || 'all';
+            const prevTableVal = tableSelect.value || 'all';
+
+            const months = iface.traffic.month || [];
+            // Sort newest first
+            const sortedMonths = [...months].sort((a, b) => {
+                if (a.date.year !== b.date.year) return b.date.year - a.date.year;
+                return b.date.month - a.date.month;
+            });
+
+            let optsHtml = '<option value="all">🌐 Semua Bulan</option>';
+            sortedMonths.forEach((m, idx) => {
+                const key = `${m.date.year}-${String(m.date.month).padStart(2, '0')}`;
+                const name = `${MONTH_NAMES_ID[m.date.month] || m.date.month} ${m.date.year}`;
+                const isLatest = (idx === 0) ? ' (Bulan Ini)' : (idx === 1 ? ' (Bulan Lalu)' : '');
+                optsHtml += `<option value="${key}">📆 ${name}${isLatest}</option>`;
+            });
+
+            chartSelect.innerHTML = optsHtml;
+            tableSelect.innerHTML = optsHtml;
+
+            if (chartSelect.querySelector(`option[value="${prevChartVal}"]`)) {
+                chartSelect.value = prevChartVal;
+            }
+            if (tableSelect.querySelector(`option[value="${prevTableVal}"]`)) {
+                tableSelect.value = prevTableVal;
+            }
+        }
+
+        function onInterfaceChange() {
+            populateMonthSelectors();
+            renderAll();
+        }
+
+        function onChartFilterChange() {
+            renderChartSection();
+        }
+
+        function onTableFilterChange() {
+            currentPage = 1;
+            renderHistoryTable();
+        }
+
+        function onPageSizeChange() {
+            const select = document.getElementById('pageSizeSelect');
+            pageSize = select.value === 'all' ? 999999 : parseInt(select.value, 10);
+            currentPage = 1;
+            renderHistoryTable();
+        }
+
+        function setChartTab(tab) {
+            chartTab = tab;
+            document.querySelectorAll('.chart-card .tab-btn').forEach(b => b.classList.remove('active'));
+            if (tab === 'day') document.getElementById('btnTabDay').classList.add('active');
+            if (tab === 'week') document.getElementById('btnTabWeek').classList.add('active');
+            if (tab === 'month') document.getElementById('btnTabMonth').classList.add('active');
+            renderChartSection();
+        }
+
+        function setHistGranularity(granularity) {
+            histGranularity = granularity;
+            document.querySelectorAll('.table-card .tab-btn').forEach(b => b.classList.remove('active'));
+            if (granularity === 'day') document.getElementById('btnHistDay').classList.add('active');
+            if (granularity === 'week') document.getElementById('btnHistWeek').classList.add('active');
+            if (granularity === 'month') document.getElementById('btnHistMonth').classList.add('active');
+            currentPage = 1;
+            renderHistoryTable();
+        }
+
+        function toggleChartType() {
+            chartType = (chartType === 'line') ? 'bar' : 'line';
+            document.getElementById('btnChartType').textContent = (chartType === 'line') ? '📊 Batang' : '📈 Garis';
+            renderChartSection();
+        }
+
+        function renderAll() {
+            renderGroupedMetrics();
+            renderChartSection();
+            renderHistoryTable();
+        }
+
+        // ==========================================
+        // 1. Grouped Metrics (Today, Month, Prev Month, Total)
+        // ==========================================
+        function renderGroupedMetrics() {
+            const iface = getSelectedInterface();
+            if (!iface || !iface.traffic) return;
+
+            const now = new Date();
+            const currYear = now.getFullYear();
+            const currMonth = now.getMonth() + 1;
+            const currDay = now.getDate();
+
+            const days = iface.traffic.day || [];
+            const months = iface.traffic.month || [];
+            const total = iface.traffic.total || { rx: 0, tx: 0 };
+
+            // 1. Hari Ini
+            let todayRx = 0, todayTx = 0;
+            const todayItem = days.find(d => d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay);
+            if (todayItem) {
+                todayRx = todayItem.rx;
+                todayTx = todayItem.tx;
+            } else if (days.length > 0) {
+                const lastDay = days[days.length - 1];
+                if (lastDay.date.year === currYear && lastDay.date.month === currMonth && lastDay.date.day === currDay) {
+                    todayRx = lastDay.rx;
+                    todayTx = lastDay.tx;
+                }
+            }
+            const todayTotal = todayRx + todayTx;
+            document.getElementById('valTodayTotal').textContent = formatBytes(todayTotal);
+            document.getElementById('valTodayRx').textContent = formatBytes(todayRx);
+            document.getElementById('valTodayTx').textContent = formatBytes(todayTx);
+            document.getElementById('todayDateLabel').textContent = `${currDay} ${MONTH_NAMES_SHORT[currMonth] || ''}`;
+
+            const todayRxPct = todayTotal > 0 ? Math.round((todayRx / todayTotal) * 100) : 50;
+            document.getElementById('todayRatioRx').style.width = `${todayRxPct}%`;
+            document.getElementById('todayRatioTx').style.width = `${100 - todayRxPct}%`;
+
+            // 2. Bulan Berjalan (Bulan Ini)
+            let currMonthRx = 0, currMonthTx = 0;
+            const currMonthItem = months.find(m => m.date.year === currYear && m.date.month === currMonth);
+            if (currMonthItem) {
+                currMonthRx = currMonthItem.rx;
+                currMonthTx = currMonthItem.tx;
+            } else {
+                // Sum from days of this month
+                days.filter(d => d.date.year === currYear && d.date.month === currMonth).forEach(d => {
+                    currMonthRx += d.rx;
+                    currMonthTx += d.tx;
+                });
+            }
+            const currMonthTotal = currMonthRx + currMonthTx;
+            document.getElementById('valCurrMonthTotal').textContent = formatBytes(currMonthTotal);
+            document.getElementById('valCurrMonthRx').textContent = formatBytes(currMonthRx);
+            document.getElementById('valCurrMonthTx').textContent = formatBytes(currMonthTx);
+            document.getElementById('currMonthLabel').textContent = `${MONTH_NAMES_ID[currMonth]} ${currYear}`;
+
+            const currMonthRxPct = currMonthTotal > 0 ? Math.round((currMonthRx / currMonthTotal) * 100) : 50;
+            document.getElementById('currMonthRatioRx').style.width = `${currMonthRxPct}%`;
+            document.getElementById('currMonthRatioTx').style.width = `${100 - currMonthRxPct}%`;
+
+            const dayCountThisMonth = Math.max(1, currDay);
+            const avgDailyThisMonth = currMonthTotal / dayCountThisMonth;
+            document.getElementById('valCurrMonthAvg').textContent = `${formatBytes(avgDailyThisMonth)}/hr`;
+
+            // 3. Bulan Sebelumnya (Bulan Lalu)
+            let prevYear = currYear;
+            let prevMonth = currMonth - 1;
+            if (prevMonth === 0) {
+                prevMonth = 12;
+                prevYear -= 1;
+            }
+
+            let prevMonthRx = 0, prevMonthTx = 0;
+            const prevMonthItem = months.find(m => m.date.year === prevYear && m.date.month === prevMonth);
+            if (prevMonthItem) {
+                prevMonthRx = prevMonthItem.rx;
+                prevMonthTx = prevMonthItem.tx;
+            } else {
+                days.filter(d => d.date.year === prevYear && d.date.month === prevMonth).forEach(d => {
+                    prevMonthRx += d.rx;
+                    prevMonthTx += d.tx;
+                });
+            }
+            const prevMonthTotal = prevMonthRx + prevMonthTx;
+            document.getElementById('valPrevMonthTotal').textContent = formatBytes(prevMonthTotal);
+            document.getElementById('valPrevMonthRx').textContent = formatBytes(prevMonthRx);
+            document.getElementById('valPrevMonthTx').textContent = formatBytes(prevMonthTx);
+            document.getElementById('prevMonthLabel').textContent = `${MONTH_NAMES_ID[prevMonth]} ${prevYear}`;
+
+            const prevMonthRxPct = prevMonthTotal > 0 ? Math.round((prevMonthRx / prevMonthTotal) * 100) : 50;
+            document.getElementById('prevMonthRatioRx').style.width = `${prevMonthRxPct}%`;
+            document.getElementById('prevMonthRatioTx').style.width = `${100 - prevMonthRxPct}%`;
+
+            if (prevMonthTotal > 0) {
+                const diffPct = Math.round(((currMonthTotal - prevMonthTotal) / prevMonthTotal) * 100);
+                const sign = diffPct >= 0 ? '+' : '';
+                document.getElementById('prevMonthCompare').textContent = `${sign}${diffPct}% vs bulan lalu`;
+                document.getElementById('prevMonthCompare').style.color = diffPct >= 0 ? 'var(--rx-color)' : 'var(--tx-color)';
+            } else {
+                document.getElementById('prevMonthCompare').textContent = 'Riwayat awal';
+            }
+
+            // 4. Total Akumulasi
+            let grandRx = total.rx || 0;
+            let grandTx = total.tx || 0;
+            if (grandRx === 0 && grandTx === 0 && months.length > 0) {
+                months.forEach(m => { grandRx += m.rx; grandTx += m.tx; });
+            }
+            const grandTotal = grandRx + grandTx;
+            document.getElementById('valGrandTotal').textContent = formatBytes(grandTotal);
+            document.getElementById('valGrandRx').textContent = formatBytes(grandRx);
+            document.getElementById('valGrandTx').textContent = formatBytes(grandTx);
+
+            const grandRxPct = grandTotal > 0 ? Math.round((grandRx / grandTotal) * 100) : 50;
+            document.getElementById('grandRatioRx').style.width = `${grandRxPct}%`;
+            document.getElementById('grandRatioTx').style.width = `${100 - grandRxPct}%`;
+            document.getElementById('totalDaysCount').textContent = `${days.length} hari terekam`;
+        }
+
+        // ==========================================
+        // 2. Weekly & Monthly Grouping Helper
+        // ==========================================
+        function getISOWeek(year, month, day) {
+            const date = new Date(Date.UTC(year, month - 1, day));
+            const dayNum = date.getUTCDay() || 7;
+            date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+            return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+        }
+
+        function groupDaysIntoWeeks(daysList) {
+            const weeksMap = {};
+            daysList.forEach(d => {
+                const yr = d.date.year;
+                const mo = d.date.month;
+                const dy = d.date.day;
+                const wk = getISOWeek(yr, mo, dy);
+                const key = `${yr}-W${String(wk).padStart(2, '0')}`;
+                
+                if (!weeksMap[key]) {
+                    weeksMap[key] = {
+                        key: key,
+                        year: yr,
+                        weekNum: wk,
+                        days: [],
+                        rx: 0,
+                        tx: 0
+                    };
+                }
+                weeksMap[key].days.push(d);
+                weeksMap[key].rx += (d.rx || 0);
+                weeksMap[key].tx += (d.tx || 0);
+            });
+
+            return Object.values(weeksMap).map(w => {
+                // Find start date and end date
+                const firstDay = w.days[0];
+                const lastDay = w.days[w.days.length - 1];
+                const startStr = `${String(firstDay.date.day).padStart(2, '0')} ${MONTH_NAMES_SHORT[firstDay.date.month]}`;
+                const endStr = `${String(lastDay.date.day).padStart(2, '0')} ${MONTH_NAMES_SHORT[lastDay.date.month]}`;
+                return {
+                    ...w,
+                    label: `Minggu ${w.weekNum} (${startStr} - ${endStr})`,
+                    shortLabel: `W${w.weekNum} (${firstDay.date.day}/${firstDay.date.month} - ${lastDay.date.day}/${lastDay.date.month})`,
+                    total: w.rx + w.tx
+                };
+            });
+        }
+
+        // ==========================================
+        // 3. Chart Rendering
+        // ==========================================
+        function renderChartSection() {
+            if (typeof Chart === 'undefined') return;
+            const iface = getSelectedInterface();
+            if (!iface || !iface.traffic) return;
+
+            const canvas = document.getElementById('usageChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            const monthFilter = document.getElementById('chartMonthFilter').value;
+            let days = iface.traffic.day || [];
+            let months = iface.traffic.month || [];
+
+            // Apply Month Filter if not 'all'
+            if (monthFilter !== 'all') {
+                const [fYear, fMonth] = monthFilter.split('-').map(Number);
+                days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
+                months = months.filter(m => m.date.year === fYear && m.date.month === fMonth);
+            }
+
+            let labels = [];
+            let rxDataMB = [];
+            let txDataMB = [];
+
+            if (chartTab === 'day') {
+                // DAILY VIEW
+                labels = days.map(d => {
+                    const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
+                    const dayName = DAY_NAMES_ID[dt.getDay()] || '';
+                    return `${d.date.day} ${MONTH_NAMES_SHORT[d.date.month]} (${dayName.slice(0,3)})`;
+                });
+                rxDataMB = days.map(d => (d.rx / (1024 * 1024)).toFixed(2));
+                txDataMB = days.map(d => (d.tx / (1024 * 1024)).toFixed(2));
+            } else if (chartTab === 'week') {
+                // WEEKLY VIEW
+                const weeks = groupDaysIntoWeeks(days);
+                labels = weeks.map(w => w.shortLabel);
+                rxDataMB = weeks.map(w => (w.rx / (1024 * 1024)).toFixed(2));
+                txDataMB = weeks.map(w => (w.tx / (1024 * 1024)).toFixed(2));
+            } else if (chartTab === 'month') {
+                // MONTHLY VIEW (Separate months clearly)
+                labels = months.map(m => `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`);
+                rxDataMB = months.map(m => (m.rx / (1024 * 1024)).toFixed(2));
+                txDataMB = months.map(m => (m.tx / (1024 * 1024)).toFixed(2));
+            }
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const gradientRx = ctx.createLinearGradient(0, 0, 0, 260);
+            gradientRx.addColorStop(0, 'rgba(79, 214, 190, 0.45)');
+            gradientRx.addColorStop(1, 'rgba(79, 214, 190, 0.0)');
+
+            const gradientTx = ctx.createLinearGradient(0, 0, 0, 260);
+            gradientTx.addColorStop(0, 'rgba(247, 118, 142, 0.45)');
+            gradientTx.addColorStop(1, 'rgba(247, 118, 142, 0.0)');
+
+            chartInstance = new Chart(ctx, {
+                type: chartType,
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Download (Rx)',
+                            data: rxDataMB,
+                            borderColor: '#4fd6be',
+                            backgroundColor: chartType === 'line' ? gradientRx : 'rgba(79, 214, 190, 0.75)',
+                            fill: chartType === 'line',
+                            tension: 0.35,
+                            borderWidth: 2,
+                            borderRadius: chartType === 'bar' ? 6 : 0,
+                            pointBackgroundColor: '#4fd6be',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'Upload (Tx)',
+                            data: txDataMB,
+                            borderColor: '#f7768e',
+                            backgroundColor: chartType === 'line' ? gradientTx : 'rgba(247, 118, 142, 0.75)',
+                            fill: chartType === 'line',
+                            tension: 0.35,
+                            borderWidth: 2,
+                            borderRadius: chartType === 'bar' ? 6 : 0,
+                            pointBackgroundColor: '#f7768e',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#a9b1d6',
+                                font: { family: 'Outfit', size: 12, weight: 500 },
+                                usePointStyle: true,
+                                padding: 16
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#161325',
+                            titleColor: '#ffffff',
+                            bodyColor: '#a9b1d6',
+                            borderColor: 'rgba(122, 131, 194, 0.3)',
+                            borderWidth: 1,
+                            padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    const bytes = context.raw * 1024 * 1024;
+                                    return `  ${context.dataset.label}: ${formatBytes(bytes)}`;
+                                },
+                                footer: function(tooltipItems) {
+                                    let sum = 0;
+                                    tooltipItems.forEach(i => sum += (i.raw * 1024 * 1024));
+                                    return `\nTotal: ${formatBytes(sum)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(122, 131, 194, 0.06)' },
+                            ticks: { color: '#565f89', font: { family: 'Outfit', size: 11 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(122, 131, 194, 0.08)' },
+                            ticks: {
+                                color: '#565f89',
+                                font: { family: 'JetBrains Mono', size: 11 },
+                                callback: function(value) {
+                                    return formatBytes(value * 1024 * 1024);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ==========================================
+        // 4. Real-time App Usage Table
+        // ==========================================
         function renderAppTable(appData) {
             const tbody = document.getElementById('appTableBody');
             if (!appData || !appData.apps || Object.keys(appData.apps).length === 0) {
@@ -488,7 +1286,7 @@
             const emptyMsg = tbody.querySelector('.empty-msg');
             if (emptyMsg) emptyMsg.remove();
 
-            const sortedApps = Object.entries(appData.apps).map(([name, usage]) => ({
+            let sortedApps = Object.entries(appData.apps).map(([name, usage]) => ({
                 name,
                 rx: usage.rx || 0,
                 tx: usage.tx || 0,
@@ -496,267 +1294,28 @@
             })).filter(app => app.total > 100);
             sortedApps.sort((a, b) => b.total - a.total);
 
+            const limitVal = document.getElementById('appLimitSelect').value;
+            if (limitVal !== 'all') {
+                sortedApps = sortedApps.slice(0, parseInt(limitVal, 10));
+            }
+
             let maxTotal = sortedApps[0] ? sortedApps[0].total : 1;
             if (maxTotal === 0) maxTotal = 1;
 
-            sortedApps.forEach((app, idx) => {
-                const pct = Math.min(100, Math.round((app.total / maxTotal) * 100));
-                let tr = tbody.querySelector(`tr[data-app-name="${CSS.escape(app.name)}"]`);
-
-                if (!tr) {
-                    tr = document.createElement('tr');
-                    tr.setAttribute('data-app-name', app.name);
-                    tr.innerHTML = `
-                        <td class="cell-idx">${idx + 1}</td>
-                        <td class="cell-name"><strong style="color: var(--text-main);">${app.name}</strong></td>
-                        <td class="cell-rx">${formatBytes(app.rx)}</td>
-                        <td class="cell-tx">${formatBytes(app.tx)}</td>
-                        <td class="cell-total"><strong style="color: var(--rx-color);">${formatBytes(app.total)}</strong></td>
-                        <td class="bar-cell">
-                            <div class="progress-bar-bg">
-                                <div class="progress-bar-fill" style="width: ${pct}%;"></div>
-                            </div>
-                        </td>
-                    `;
-                } else {
-                    const cellIdx = tr.querySelector('.cell-idx');
-                    const cellRx = tr.querySelector('.cell-rx');
-                    const cellTx = tr.querySelector('.cell-tx');
-                    const cellTotal = tr.querySelector('.cell-total');
-                    const barFill = tr.querySelector('.progress-bar-fill');
-
-                    if (cellIdx && cellIdx.textContent !== String(idx + 1)) cellIdx.textContent = idx + 1;
-                    if (cellRx && cellRx.textContent !== formatBytes(app.rx)) cellRx.textContent = formatBytes(app.rx);
-                    if (cellTx && cellTx.textContent !== formatBytes(app.tx)) cellTx.textContent = formatBytes(app.tx);
-                    if (cellTotal) {
-                        const formatted = formatBytes(app.total);
-                        if (cellTotal.textContent !== formatted) {
-                            cellTotal.innerHTML = `<strong style="color: var(--rx-color);">${formatted}</strong>`;
-                        }
-                    }
-                    if (barFill) {
-                        barFill.style.width = `${pct}%`;
-                    }
-                }
-                tbody.appendChild(tr);
-            });
-        }
-
-        function getIfaceTotal(iface) {
-            if (!iface || !iface.traffic) return 0;
-            let sum = 0;
-            if (iface.traffic.day && Array.isArray(iface.traffic.day)) {
-                iface.traffic.day.forEach(d => sum += (d.rx || 0) + (d.tx || 0));
-            }
-            if (sum === 0 && iface.traffic.month && Array.isArray(iface.traffic.month)) {
-                iface.traffic.month.forEach(m => sum += (m.rx || 0) + (m.tx || 0));
-            }
-            return sum;
-        }
-
-        function populateInterfaces() {
-            const select = document.getElementById('interfaceSelect');
-            if (!rawData || !rawData.interfaces) return;
-            const current = select.value;
-            select.innerHTML = '';
-
-            let validIfaces = rawData.interfaces.filter(i => {
-                const name = i.name || '';
-                return !name.startsWith('br-') && !name.startsWith('veth') && !name.startsWith('docker') && name !== 'lo';
-            });
-            if (validIfaces.length === 0) validIfaces = rawData.interfaces;
-
-            validIfaces.sort((a, b) => getIfaceTotal(b) - getIfaceTotal(a));
-
-            validIfaces.forEach(iface => {
-                const opt = document.createElement('option');
-                opt.value = iface.name;
-                const tot = getIfaceTotal(iface);
-                opt.textContent = `Interface: ${iface.name} (${formatBytes(tot)})`;
-                select.appendChild(opt);
-            });
-
-            if (current && select.querySelector(`option[value="${current}"]`)) {
-                select.value = current;
-            } else if (select.options.length > 0) {
-                select.value = select.options[0].value;
-            }
-        }
-
-        function switchView(view, btn) {
-            currentView = view;
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            renderAll();
-        }
-
-        function renderAll() {
-            if (!rawData || !rawData.interfaces) return;
-            const select = document.getElementById('interfaceSelect');
-            const selectedIfaceName = select.value || (select.options.length > 0 ? select.options[0].value : null) || rawData.interfaces[0].name;
-            const iface = rawData.interfaces.find(i => i.name === selectedIfaceName) || rawData.interfaces[0];
-
-            const trafficData = iface.traffic[currentView] || [];
-            
-            // Calculate Top Metrics
-            let totalRx = 0, totalTx = 0;
-            trafficData.forEach(item => {
-                totalRx += item.rx || 0;
-                totalTx += item.tx || 0;
-            });
-
-            document.getElementById('valRx').textContent = formatBytes(totalRx);
-            document.getElementById('valTx').textContent = formatBytes(totalTx);
-            document.getElementById('valTotal').textContent = formatBytes(totalRx + totalTx);
-            
-            const count = Math.max(1, trafficData.length);
-            document.getElementById('valAvg').textContent = formatBytes((totalRx + totalTx) / count);
-
-            renderChart(trafficData);
-            renderTable(trafficData);
-        }
-
-        function renderChart(trafficData) {
-            if (typeof Chart === 'undefined') return;
-            const canvas = document.getElementById('usageChart');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            
-            const labels = trafficData.map(d => {
-                if (currentView === 'day') {
-                    return `${d.date.day}/${d.date.month}`;
-                } else {
-                    return `${d.date.month}/${d.date.year}`;
-                }
-            });
-
-            const rxData = trafficData.map(d => (d.rx / (1024 * 1024)).toFixed(2)); // in MB
-            const txData = trafficData.map(d => (d.tx / (1024 * 1024)).toFixed(2)); // in MB
-
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
-
-            const gradientRx = ctx.createLinearGradient(0, 0, 0, 250);
-            gradientRx.addColorStop(0, 'rgba(79, 214, 190, 0.4)');
-            gradientRx.addColorStop(1, 'rgba(79, 214, 190, 0.0)');
-
-            const gradientTx = ctx.createLinearGradient(0, 0, 0, 250);
-            gradientTx.addColorStop(0, 'rgba(247, 118, 142, 0.4)');
-            gradientTx.addColorStop(1, 'rgba(247, 118, 142, 0.0)');
-
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Download',
-                            data: rxData,
-                            borderColor: '#4fd6be',
-                            backgroundColor: gradientRx,
-                            fill: true,
-                            tension: 0.35,
-                            borderWidth: 2,
-                            pointBackgroundColor: '#4fd6be',
-                            pointRadius: 4,
-                            pointHoverRadius: 6
-                        },
-                        {
-                            label: 'Upload',
-                            data: txData,
-                            borderColor: '#f7768e',
-                            backgroundColor: gradientTx,
-                            fill: true,
-                            tension: 0.35,
-                            borderWidth: 2,
-                            pointBackgroundColor: '#f7768e',
-                            pointRadius: 4,
-                            pointHoverRadius: 6
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: {
-                                color: '#a9b1d6',
-                                font: { family: 'Outfit', size: 12 }
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: '#161325',
-                            titleColor: '#ffffff',
-                            bodyColor: '#a9b1d6',
-                            borderColor: 'rgba(122, 131, 194, 0.3)',
-                            borderWidth: 1,
-                            padding: 10,
-                            callbacks: {
-                                label: function(context) {
-                                    const bytes = context.raw * 1024 * 1024;
-                                    return `${context.dataset.label}: ${formatBytes(bytes)}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(122, 131, 194, 0.06)' },
-                            ticks: { color: '#565f89', font: { family: 'Outfit' } }
-                        },
-                        y: {
-                            grid: { color: 'rgba(122, 131, 194, 0.08)' },
-                            ticks: {
-                                color: '#565f89',
-                                font: { family: 'JetBrains Mono' },
-                                callback: function(value) {
-                                    return formatBytes(value * 1024 * 1024);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function renderTable(trafficData) {
-            const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
-
-            if (trafficData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Belum ada data tercatat.</td></tr>';
-                return;
-            }
-
-            let maxTotal = 1;
-            trafficData.forEach(d => {
-                const tot = (d.rx || 0) + (d.tx || 0);
-                if (tot > maxTotal) maxTotal = tot;
-            });
-
-            // Display in reverse order (newest first)
-            [...trafficData].reverse().forEach(d => {
+            sortedApps.forEach((app, idx) => {
+                const rxPct = app.total > 0 ? Math.round((app.rx / app.total) * 100) : 50;
                 const tr = document.createElement('tr');
-                const rxFormatted = formatBytes(d.rx);
-                const txFormatted = formatBytes(d.tx);
-                const totalFormatted = formatBytes((d.rx || 0) + (d.tx || 0));
-                
-                const dateStr = currentView === 'day' 
-                    ? `${d.date.year}-${String(d.date.month).padStart(2,'0')}-${String(d.date.day).padStart(2,'0')}`
-                    : `${d.date.year}-${String(d.date.month).padStart(2,'0')}`;
-
-                const pct = Math.min(100, Math.round((((d.rx || 0) + (d.tx || 0)) / maxTotal) * 100));
-
                 tr.innerHTML = `
-                    <td style="color: var(--text-primary); font-weight: 500;">${dateStr}</td>
-                    <td style="color: var(--rx-color);">${rxFormatted}</td>
-                    <td style="color: var(--tx-color);">${txFormatted}</td>
-                    <td style="font-weight: 700;">${totalFormatted}</td>
+                    <td class="mono-val" style="color: var(--text-muted);">${idx + 1}</td>
+                    <td><strong style="color: var(--text-primary);">${app.name}</strong></td>
+                    <td class="mono-val" style="color: var(--rx-color);">${formatBytes(app.rx)}</td>
+                    <td class="mono-val" style="color: var(--tx-color);">${formatBytes(app.tx)}</td>
+                    <td class="mono-val"><strong style="color: #ffffff;">${formatBytes(app.total)}</strong></td>
                     <td class="bar-cell">
-                        <div class="progress-bar-bg">
-                            <div class="progress-bar-fill" style="width: ${pct}%;"></div>
+                        <div class="ratio-bar-wrapper" style="height: 6px;">
+                            <div class="ratio-bar-rx" style="width: ${rxPct}%;" title="Download: ${rxPct}%"></div>
+                            <div class="ratio-bar-tx" style="width: ${100 - rxPct}%;" title="Upload: ${100 - rxPct}%"></div>
                         </div>
                     </td>
                 `;
@@ -764,8 +1323,159 @@
             });
         }
 
+        // ==========================================
+        // 5. History Table with Pagination & Granularity
+        // ==========================================
+        function renderHistoryTable() {
+            const iface = getSelectedInterface();
+            const tbody = document.getElementById('tableBody');
+            if (!iface || !iface.traffic) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Data tidak tersedia.</td></tr>';
+                return;
+            }
+
+            const monthFilter = document.getElementById('tableMonthFilter').value;
+            let items = [];
+
+            const now = new Date();
+            const currYear = now.getFullYear();
+            const currMonth = now.getMonth() + 1;
+            const currDay = now.getDate();
+
+            if (histGranularity === 'day') {
+                let days = iface.traffic.day || [];
+                if (monthFilter !== 'all') {
+                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
+                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
+                }
+                items = days.map(d => {
+                    const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
+                    const dayName = DAY_NAMES_ID[dt.getDay()] || '';
+                    const isToday = (d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay);
+                    return {
+                        title: `${dayName}, ${d.date.day} ${MONTH_NAMES_ID[d.date.month]} ${d.date.year}`,
+                        isToday: isToday,
+                        rx: d.rx || 0,
+                        tx: d.tx || 0,
+                        total: (d.rx || 0) + (d.tx || 0),
+                        timestamp: d.timestamp || dt.getTime()
+                    };
+                });
+            } else if (histGranularity === 'week') {
+                let days = iface.traffic.day || [];
+                if (monthFilter !== 'all') {
+                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
+                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
+                }
+                const weeks = groupDaysIntoWeeks(days);
+                items = weeks.map(w => ({
+                    title: w.label,
+                    rx: w.rx,
+                    tx: w.tx,
+                    total: w.total,
+                    isToday: false
+                }));
+            } else if (histGranularity === 'month') {
+                let months = iface.traffic.month || [];
+                if (monthFilter !== 'all') {
+                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
+                    months = months.filter(m => m.date.year === fYear && m.date.month === fMonth);
+                }
+                items = months.map(m => {
+                    const isCurr = (m.date.year === currYear && m.date.month === currMonth);
+                    return {
+                        title: `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`,
+                        rx: m.rx || 0,
+                        tx: m.tx || 0,
+                        total: (m.rx || 0) + (m.tx || 0),
+                        isCurrentMonth: isCurr
+                    };
+                });
+            }
+
+            // Display in reverse order (newest first)
+            const sortedItems = [...items].reverse();
+
+            if (sortedItems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">Tidak ada data histori untuk periode ini.</td></tr>';
+                document.getElementById('pageInfo').textContent = 'Menampilkan 0 data';
+                document.getElementById('pageCurrentLabel').textContent = '0 / 0';
+                return;
+            }
+
+            // Pagination calculation
+            const totalItems = sortedItems.length;
+            const totalPages = Math.ceil(totalItems / pageSize);
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, totalItems);
+            const pageItems = sortedItems.slice(startIndex, endIndex);
+
+            tbody.innerHTML = '';
+            pageItems.forEach((item, idx) => {
+                const rxPct = item.total > 0 ? Math.round((item.rx / item.total) * 100) : 50;
+                const tr = document.createElement('tr');
+                
+                let pillBadge = '';
+                if (item.isToday) {
+                    pillBadge = '<span class="pill-tag pill-today">Hari Ini</span>';
+                } else if (item.isCurrentMonth) {
+                    pillBadge = '<span class="pill-tag pill-current">Bulan Berjalan</span>';
+                }
+
+                tr.innerHTML = `
+                    <td class="mono-val" style="color: var(--text-muted);">${startIndex + idx + 1}</td>
+                    <td>
+                        <div class="badge-date">
+                            <span>${item.title}</span>
+                            ${pillBadge}
+                        </div>
+                    </td>
+                    <td class="mono-val" style="color: var(--rx-color); font-weight: 500;">${formatBytes(item.rx)}</td>
+                    <td class="mono-val" style="color: var(--tx-color); font-weight: 500;">${formatBytes(item.tx)}</td>
+                    <td class="mono-val"><strong style="color: #ffffff;">${formatBytes(item.total)}</strong></td>
+                    <td class="bar-cell">
+                        <div class="ratio-bar-wrapper" style="height: 6px;">
+                            <div class="ratio-bar-rx" style="width: ${rxPct}%;" title="Download: ${rxPct}%"></div>
+                            <div class="ratio-bar-tx" style="width: ${100 - rxPct}%;" title="Upload: ${100 - rxPct}%"></div>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Update Pagination UI
+            document.getElementById('pageInfo').textContent = `Menampilkan ${startIndex + 1} - ${endIndex} dari ${totalItems} data`;
+            document.getElementById('pageCurrentLabel').textContent = `${currentPage} / ${totalPages}`;
+            document.getElementById('btnFirstPage').disabled = (currentPage === 1);
+            document.getElementById('btnPrevPage').disabled = (currentPage === 1);
+            document.getElementById('btnNextPage').disabled = (currentPage === totalPages);
+            document.getElementById('btnLastPage').disabled = (currentPage === totalPages);
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderHistoryTable();
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            renderHistoryTable();
+        }
+
+        function goToLastPage() {
+            const iface = getSelectedInterface();
+            if (!iface || !iface.traffic) return;
+            const days = iface.traffic.day || [];
+            currentPage = Math.ceil(days.length / pageSize);
+            renderHistoryTable();
+        }
+
+        // Initialize and setup intervals
         fetchData();
-        setInterval(fetchData, 3000);
+        setInterval(fetchData, 4000);
         setInterval(fetchAppData, 1000);
     </script>
 </body>
