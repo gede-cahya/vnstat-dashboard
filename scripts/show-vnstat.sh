@@ -6,6 +6,20 @@ if ! pgrep -f "vnstat-gui --server-only" > /dev/null; then
     sleep 0.3
 fi
 
-# Launch VNStat App Dashboard Window with timestamp to force fresh fetch and eliminate cached 0% items
+PROFILE_DIR="/tmp/vnstat-dashboard-chrome-profile"
+mkdir -p "$PROFILE_DIR"
+touch "$PROFILE_DIR/First Run"
+
+# Launch VNStat App Dashboard Window with flags to skip ToS/Fre and enable floating window
 TS=$(date +%s)
-chromium --app="http://127.0.0.1:9876/index.html?t=${TS}" --user-data-dir="/tmp/vnstat-dashboard-chrome-profile" > /dev/null 2>&1 &
+chromium \
+    --app="http://127.0.0.1:9876/index.html?t=${TS}" \
+    --class="VnstatDashboard" \
+    --user-data-dir="$PROFILE_DIR" \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-session-crashed-bubble \
+    --disable-infobars \
+    --password-store=basic \
+    --disable-features=Translate,OptimizationHints \
+    > /dev/null 2>&1 &
