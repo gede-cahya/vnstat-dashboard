@@ -14,6 +14,9 @@ use tao::{
 };
 use wry::WebViewBuilder;
 
+static EMBEDDED_INDEX_HTML: &str = include_str!("../index.html");
+static EMBEDDED_CHART_JS: &[u8] = include_bytes!("../chart.umd.js");
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct AppNetUsage {
     rx: u64,
@@ -27,6 +30,8 @@ struct DailyNetAppLog {
     total_tx: u64,
     speed_rx: u64,
     speed_tx: u64,
+    #[serde(default)]
+    interface: String,
     apps: BTreeMap<String, AppNetUsage>,
 }
 
@@ -67,22 +72,6 @@ fn get_base_dir() -> PathBuf {
     dir
 }
 
-fn get_default_interface() -> Option<String> {
-    if let Ok(content) = fs::read_to_string("/proc/net/route") {
-        for line in content.lines().skip(1) {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            if fields.len() >= 4 {
-                let iface = fields[0];
-                let dest = fields[1];
-                if dest == "00000000" {
-                    return Some(iface.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
 fn is_physical_interface(name: &str) -> bool {
     let n = name.trim();
     if n.starts_with("lo")
@@ -93,11 +82,56 @@ fn is_physical_interface(name: &str) -> bool {
         || n.starts_with("tun")
         || n.starts_with("tap")
         || n.starts_with("wg")
-        || n.starts_with("CloudflareWARP")
+        || n.starts_with("Cloudflare")
+        || n.starts_with("warp")
     {
         return false;
     }
+    let device_path = format!("/sys/class/net/{}/device", n);
+    if std::path::Path::new(&device_path).exists() {
+        return true;
+    }
     n.starts_with("en") || n.starts_with("wl") || n.starts_with("eth") || n.starts_with("wlan")
+}
+
+fn get_default_interface() -> Option<String> {
+    if let Ok(content) = fs::read_to_string("/proc/net/route") {
+        let mut fallback = None;
+        for line in content.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 4 {
+                let iface = fields[0];
+                let dest = fields[1];
+                if dest == "00000000" {
+                    if is_physical_interface(iface) {
+                        return Some(iface.to_string());
+                    }
+                    if fallback.is_none() && !iface.starts_with("lo") && !iface.starts_with("docker") && !iface.starts_with("br-") {
+                        fallback = Some(iface.to_string());
+                    }
+                }
+            }
+        }
+        if fallback.is_some() {
+            return fallback;
+        }
+    }
+    // Fallback: inspect /sys/class/net for active physical interface
+    if let Ok(entries) = fs::read_dir("/sys/class/net") {
+        for entry in entries.flatten() {
+            if let Ok(name) = entry.file_name().into_string() {
+                if is_physical_interface(&name) {
+                    let oper_path = format!("/sys/class/net/{}/operstate", name);
+                    if let Ok(state) = fs::read_to_string(oper_path) {
+                        if state.trim() == "up" {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn get_net_dev_bytes() -> (u64, u64) {
@@ -205,6 +239,7 @@ fn load_raw_app_log(date_str: &str) -> DailyNetAppLog {
         total_tx: 0,
         speed_rx: 0,
         speed_tx: 0,
+        interface: get_default_interface().unwrap_or_else(|| "enp7s0".to_string()),
         apps: BTreeMap::new(),
     }
 }
@@ -247,26 +282,42 @@ fn get_live_speed() -> (u64, u64) {
 fn start_net_app_tracker_thread() {
     thread::spawn(|| {
         let mut prev_rx_tx = get_net_dev_bytes();
+        let mut prev_time = std::time::Instant::now();
         let mut prev_app_io: BTreeMap<String, u64> = BTreeMap::new();
 
         loop {
             thread::sleep(Duration::from_secs(1));
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(prev_time).as_secs_f64();
+            prev_time = now;
+
             let curr_rx_tx = get_net_dev_bytes();
-            let delta_rx = if curr_rx_tx.0 >= prev_rx_tx.0 {
+            let raw_delta_rx = if curr_rx_tx.0 >= prev_rx_tx.0 {
                 curr_rx_tx.0 - prev_rx_tx.0
             } else {
                 0
             };
-            let delta_tx = if curr_rx_tx.1 >= prev_rx_tx.1 {
+            let raw_delta_tx = if curr_rx_tx.1 >= prev_rx_tx.1 {
                 curr_rx_tx.1 - prev_rx_tx.1
             } else {
                 0
             };
             prev_rx_tx = curr_rx_tx;
 
-            update_live_speed(delta_rx, delta_tx);
+            let speed_rx = if elapsed > 0.0 {
+                ((raw_delta_rx as f64) / elapsed).round() as u64
+            } else {
+                raw_delta_rx
+            };
+            let speed_tx = if elapsed > 0.0 {
+                ((raw_delta_tx as f64) / elapsed).round() as u64
+            } else {
+                raw_delta_tx
+            };
 
-            if delta_rx > 0 || delta_tx > 0 {
+            update_live_speed(speed_rx, speed_tx);
+
+            if raw_delta_rx > 0 || raw_delta_tx > 0 {
                 let app_pids = get_active_net_app_pids();
                 let mut curr_app_io: BTreeMap<String, u64> = BTreeMap::new();
 
@@ -296,14 +347,14 @@ fn start_net_app_tracker_thread() {
                 let date_str = Local::now().format("%Y-%m-%d").to_string();
                 let mut log = load_raw_app_log(&date_str);
 
-                log.total_rx += delta_rx;
-                log.total_tx += delta_tx;
+                log.total_rx += raw_delta_rx;
+                log.total_tx += raw_delta_tx;
 
                 if total_io_delta > 0 {
                     for (app_name, io_delta) in app_io_deltas {
                         let ratio = (io_delta as f64) / (total_io_delta as f64);
-                        let app_rx = ((delta_rx as f64) * ratio).round() as u64;
-                        let app_tx = ((delta_tx as f64) * ratio).round() as u64;
+                        let app_rx = ((raw_delta_rx as f64) * ratio).round() as u64;
+                        let app_tx = ((raw_delta_tx as f64) * ratio).round() as u64;
 
                         let entry = log.apps.entry(app_name).or_default();
                         entry.rx += app_rx;
@@ -311,8 +362,8 @@ fn start_net_app_tracker_thread() {
                     }
                 } else {
                     let sys_entry = log.apps.entry("System / Services".to_string()).or_default();
-                    sys_entry.rx += delta_rx;
-                    sys_entry.tx += delta_tx;
+                    sys_entry.rx += raw_delta_rx;
+                    sys_entry.tx += raw_delta_tx;
                 }
 
                 save_app_log(&log);
@@ -373,6 +424,9 @@ fn get_synced_app_log(date_str: &str) -> DailyNetAppLog {
     let (speed_rx, speed_tx) = get_live_speed();
     log.speed_rx = speed_rx;
     log.speed_tx = speed_tx;
+    if log.interface.is_empty() {
+        log.interface = get_default_interface().unwrap_or_else(|| "enp7s0".to_string());
+    }
 
     let now_date = Local::now().format("%Y-%m-%d").to_string();
     if date_str == now_date {
@@ -444,30 +498,40 @@ fn handle_http_request(request: tiny_http::Request) {
             clean_url.trim_start_matches('/')
         };
 
+        let repo_path = PathBuf::from(&home).join("2026/vnstat-dashboard").join(filename);
         let local_cur = PathBuf::from(filename);
         let path = PathBuf::from(&home).join(".local/share/vnstat-rust-gui").join(filename);
         let fallback_path = PathBuf::from(&home).join(".local/share/vnstat-dashboard").join(filename);
 
-        let bytes_opt = fs::read(&local_cur)
+        let bytes_opt = fs::read(&repo_path)
+            .or_else(|_| fs::read(&local_cur))
             .or_else(|_| fs::read(&path))
             .or_else(|_| fs::read(&fallback_path));
 
-        if let Ok(bytes) = bytes_opt {
-            let content_type = if filename.ends_with(".js") {
+        let (content_type, bytes) = if let Ok(b) = bytes_opt {
+            let ct = if filename.ends_with(".js") {
                 "application/javascript"
             } else if filename.ends_with(".css") {
                 "text/css"
             } else {
                 "text/html; charset=utf-8"
             };
-
-            let response = tiny_http::Response::from_data(bytes)
-                .with_header(format!("Content-Type: {}", content_type).parse::<tiny_http::Header>().unwrap())
-                .with_header("Cache-Control: no-cache, no-store, must-revalidate".parse::<tiny_http::Header>().unwrap());
-            let _ = request.respond(response);
+            (ct, b)
+        } else if filename == "index.html" {
+            ("text/html; charset=utf-8", EMBEDDED_INDEX_HTML.as_bytes().to_vec())
+        } else if filename == "chart.umd.js" {
+            ("application/javascript", EMBEDDED_CHART_JS.to_vec())
         } else {
-            let _ = request.respond(tiny_http::Response::from_string("404").with_status_code(404));
-        }
+            let response = tiny_http::Response::from_string("404").with_status_code(404);
+            let _ = request.respond(response);
+            return;
+        };
+
+        let response = tiny_http::Response::from_data(bytes)
+            .with_header(format!("Content-Type: {}", content_type).parse::<tiny_http::Header>().unwrap())
+            .with_header("Cache-Control: no-cache, no-store, must-revalidate".parse::<tiny_http::Header>().unwrap())
+            .with_header("Access-Control-Allow-Origin: *".parse::<tiny_http::Header>().unwrap());
+        let _ = request.respond(response);
     }
 }
 

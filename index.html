@@ -817,9 +817,11 @@
                 if (data.speed_rx !== undefined || data.speed_tx !== undefined) {
                     const badge = document.getElementById('liveSpeedBadge');
                     if (badge) {
+                        const iface = data.interface ? ` (${data.interface})` : '';
                         const rxS = formatBytes(data.speed_rx || 0) + '/s ↓';
                         const txS = formatBytes(data.speed_tx || 0) + '/s ↑';
-                        badge.innerHTML = `<div class="pulse-dot"></div>⚡ Live Speed: ${rxS} | ${txS}`;
+                        badge.innerHTML = `<div class="pulse-dot"></div>⚡ Live Speed${iface}: ${rxS} | ${txS}`;
+                        badge.title = `Real-time physical rate monitored on ${data.interface || 'default interface'}`;
                     }
                 }
                 renderAppTable(data);
