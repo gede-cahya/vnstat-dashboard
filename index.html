@@ -843,7 +843,14 @@
 
             let validIfaces = rawData.interfaces.filter(i => {
                 const name = i.name || '';
-                return !name.startsWith('br-') && !name.startsWith('veth') && !name.startsWith('docker') && name !== 'lo';
+                return !name.startsWith('br-')
+                    && !name.startsWith('veth')
+                    && !name.startsWith('docker')
+                    && !name.startsWith('CloudflareWARP')
+                    && !name.startsWith('wg')
+                    && !name.startsWith('tun')
+                    && !name.startsWith('tap')
+                    && name !== 'lo';
             });
             if (validIfaces.length === 0) validIfaces = rawData.interfaces;
 
@@ -978,6 +985,13 @@
                     todayTx = lastDay.tx;
                 }
             }
+
+            // Sync with real-time live traffic if real-time tracking has higher values than vnstat snapshot
+            if (cachedAppData && (cachedAppData.total_rx > todayRx || cachedAppData.total_tx > todayTx)) {
+                todayRx = Math.max(todayRx, cachedAppData.total_rx || 0);
+                todayTx = Math.max(todayTx, cachedAppData.total_tx || 0);
+            }
+
             const todayTotal = todayRx + todayTx;
             document.getElementById('valTodayTotal').textContent = formatBytes(todayTotal);
             document.getElementById('valTodayRx').textContent = formatBytes(todayRx);
@@ -1000,6 +1014,12 @@
                     currMonthTx += d.tx;
                 });
             }
+
+            const vnstatTodayRx = todayItem ? todayItem.rx : 0;
+            const vnstatTodayTx = todayItem ? todayItem.tx : 0;
+            if (todayRx > vnstatTodayRx) currMonthRx += (todayRx - vnstatTodayRx);
+            if (todayTx > vnstatTodayTx) currMonthTx += (todayTx - vnstatTodayTx);
+
             const currMonthTotal = currMonthRx + currMonthTx;
             document.getElementById('valCurrMonthTotal').textContent = formatBytes(currMonthTotal);
             document.getElementById('valCurrMonthRx').textContent = formatBytes(currMonthRx);

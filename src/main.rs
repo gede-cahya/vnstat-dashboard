@@ -67,14 +67,54 @@ fn get_base_dir() -> PathBuf {
     dir
 }
 
+fn get_default_interface() -> Option<String> {
+    if let Ok(content) = fs::read_to_string("/proc/net/route") {
+        for line in content.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 4 {
+                let iface = fields[0];
+                let dest = fields[1];
+                if dest == "00000000" {
+                    return Some(iface.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_physical_interface(name: &str) -> bool {
+    let n = name.trim();
+    if n.starts_with("lo")
+        || n.starts_with("br-")
+        || n.starts_with("docker")
+        || n.starts_with("veth")
+        || n.starts_with("virbr")
+        || n.starts_with("tun")
+        || n.starts_with("tap")
+        || n.starts_with("wg")
+        || n.starts_with("CloudflareWARP")
+    {
+        return false;
+    }
+    n.starts_with("en") || n.starts_with("wl") || n.starts_with("eth") || n.starts_with("wlan")
+}
+
 fn get_net_dev_bytes() -> (u64, u64) {
+    let target_iface = get_default_interface();
     let mut rx = 0u64;
     let mut tx = 0u64;
     if let Ok(content) = fs::read_to_string("/proc/net/dev") {
         for line in content.lines() {
-            if line.contains(':') && !line.trim().starts_with("lo") {
-                if let Some(parts_str) = line.split(':').nth(1) {
-                    let parts: Vec<&str> = parts_str.split_whitespace().collect();
+            if let Some((if_name, stats)) = line.split_once(':') {
+                let name = if_name.trim();
+                let should_count = match &target_iface {
+                    Some(target) => name == target,
+                    None => is_physical_interface(name),
+                };
+
+                if should_count {
+                    let parts: Vec<&str> = stats.split_whitespace().collect();
                     if parts.len() >= 9 {
                         if let (Ok(r), Ok(t)) = (parts[0].parse::<u64>(), parts[8].parse::<u64>()) {
                             rx += r;
@@ -282,8 +322,9 @@ fn start_net_app_tracker_thread() {
 }
 
 fn fetch_vnstat_today_totals() -> (u64, u64) {
-    let mut max_rx = 0u64;
-    let mut max_tx = 0u64;
+    let target_iface = get_default_interface();
+    let mut target_rx = 0u64;
+    let mut target_tx = 0u64;
 
     if let Ok(output) = Command::new("vnstat").arg("--json").output() {
         if output.status.success() {
@@ -296,7 +337,11 @@ fn fetch_vnstat_today_totals() -> (u64, u64) {
 
                     for iface in ifaces {
                         let if_name = iface.name.unwrap_or_default();
-                        if if_name.starts_with("br-") || if_name.starts_with("veth") || if_name.starts_with("docker") {
+                        let is_match = match &target_iface {
+                            Some(t) => &if_name == t,
+                            None => is_physical_interface(&if_name),
+                        };
+                        if !is_match {
                             continue;
                         }
 
@@ -306,10 +351,9 @@ fn fetch_vnstat_today_totals() -> (u64, u64) {
                                     if d.date.year == curr_year && d.date.month == curr_month {
                                         if let Some(day_num) = d.date.day {
                                             if day_num == curr_day {
-                                                if d.rx > max_rx {
-                                                    max_rx = d.rx;
-                                                    max_tx = d.tx;
-                                                }
+                                                target_rx = d.rx;
+                                                target_tx = d.tx;
+                                                return (target_rx, target_tx);
                                             }
                                         }
                                     }
@@ -321,7 +365,7 @@ fn fetch_vnstat_today_totals() -> (u64, u64) {
             }
         }
     }
-    (max_rx, max_tx)
+    (target_rx, target_tx)
 }
 
 fn get_synced_app_log(date_str: &str) -> DailyNetAppLog {
@@ -333,65 +377,23 @@ fn get_synced_app_log(date_str: &str) -> DailyNetAppLog {
     let now_date = Local::now().format("%Y-%m-%d").to_string();
     if date_str == now_date {
         let (vnstat_rx, vnstat_tx) = fetch_vnstat_today_totals();
-        if vnstat_rx > 0 || vnstat_tx > 0 {
-            let tracked_total_rx: u64 = log.apps.values().map(|a| a.rx).sum();
-            let tracked_total_tx: u64 = log.apps.values().map(|a| a.tx).sum();
+        let tracked_total_rx: u64 = log.apps.values().map(|a| a.rx).sum();
+        let tracked_total_tx: u64 = log.apps.values().map(|a| a.tx).sum();
 
-            log.total_rx = vnstat_rx;
-            log.total_tx = vnstat_tx;
+        let effective_rx = std::cmp::max(log.total_rx, std::cmp::max(vnstat_rx, tracked_total_rx));
+        let effective_tx = std::cmp::max(log.total_tx, std::cmp::max(vnstat_tx, tracked_total_tx));
 
-            let mut synced_apps: BTreeMap<String, AppNetUsage> = BTreeMap::new();
-            let mut allocated_rx = 0u64;
-            let mut allocated_tx = 0u64;
+        log.total_rx = effective_rx;
+        log.total_tx = effective_tx;
 
-            if tracked_total_rx > 0 || tracked_total_tx > 0 {
-                for (app_name, usage) in &log.apps {
-                    let rx_ratio = if tracked_total_rx > 0 {
-                        (usage.rx as f64) / (tracked_total_rx as f64)
-                    } else {
-                        0.0
-                    };
-                    let scaled_rx = (vnstat_rx as f64 * rx_ratio).round() as u64;
-                    allocated_rx += scaled_rx;
-
-                    let tx_ratio = if tracked_total_tx > 0 {
-                        (usage.tx as f64) / (tracked_total_tx as f64)
-                    } else {
-                        0.0
-                    };
-                    let scaled_tx = (vnstat_tx as f64 * tx_ratio).round() as u64;
-                    allocated_tx += scaled_tx;
-
-                    if scaled_rx > 0 || scaled_tx > 0 {
-                        synced_apps.insert(
-                            app_name.clone(),
-                            AppNetUsage {
-                                rx: scaled_rx,
-                                tx: scaled_tx,
-                            },
-                        );
-                    }
-                }
-            }
-
-            let unallocated_rx = if vnstat_rx >= allocated_rx {
-                vnstat_rx - allocated_rx
-            } else {
-                0
-            };
-            let unallocated_tx = if vnstat_tx >= allocated_tx {
-                vnstat_tx - allocated_tx
-            } else {
-                0
-            };
-
+        if effective_rx > tracked_total_rx || effective_tx > tracked_total_tx {
+            let unallocated_rx = effective_rx.saturating_sub(tracked_total_rx);
+            let unallocated_tx = effective_tx.saturating_sub(tracked_total_tx);
             if unallocated_rx > 10240 || unallocated_tx > 10240 {
-                let sys_entry = synced_apps.entry("System & Background Traffic".to_string()).or_default();
-                sys_entry.rx += unallocated_rx;
-                sys_entry.tx += unallocated_tx;
+                let sys_entry = log.apps.entry("System & Background Traffic".to_string()).or_default();
+                sys_entry.rx = sys_entry.rx.saturating_add(unallocated_rx);
+                sys_entry.tx = sys_entry.tx.saturating_add(unallocated_tx);
             }
-
-            log.apps = synced_apps;
         }
     }
 
