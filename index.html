@@ -756,9 +756,9 @@
         let rawData = null;
         let cachedAppData = null;
         let chartInstance = null;
-        let chartTab = 'day'; // 'day', 'week', 'month'
+        let activeGranularity = 'day'; // 'day', 'week', 'month'
         let chartType = 'line'; // 'line' or 'bar'
-        let histGranularity = 'day'; // 'day', 'week', 'month'
+        let activeMonthFilter = '';
         
         let currentPage = 1;
         let pageSize = 10;
@@ -825,6 +825,9 @@
                     }
                 }
                 renderAppTable(data);
+                if (rawData) {
+                    renderGroupedMetrics();
+                }
             } catch (err) {
                 console.error("Gagal mengambil data aplikasi:", err);
             }
@@ -833,8 +836,20 @@
         function getSelectedInterface() {
             if (!rawData || !rawData.interfaces || rawData.interfaces.length === 0) return null;
             const select = document.getElementById('interfaceSelect');
-            const selectedIfaceName = select.value;
-            return rawData.interfaces.find(i => i.name === selectedIfaceName) || rawData.interfaces[0];
+            const selectedIfaceName = select ? select.value : '';
+            if (selectedIfaceName) {
+                const found = rawData.interfaces.find(i => i.name === selectedIfaceName);
+                if (found) return found;
+            }
+            const defIface = cachedAppData?.interface || 'enp7s0';
+            const foundDef = rawData.interfaces.find(i => i.name === defIface);
+            if (foundDef) return foundDef;
+
+            const valid = rawData.interfaces.find(i => {
+                const n = i.name || '';
+                return !n.startsWith('br-') && !n.startsWith('veth') && !n.startsWith('docker') && n !== 'lo';
+            });
+            return valid || rawData.interfaces[0];
         }
 
         function populateInterfaces() {
@@ -866,6 +881,10 @@
 
             if (current && select.querySelector(`option[value="${current}"]`)) {
                 select.value = current;
+            } else if (cachedAppData?.interface && select.querySelector(`option[value="${cachedAppData.interface}"]`)) {
+                select.value = cachedAppData.interface;
+            } else if (select.querySelector(`option[value="enp7s0"]`)) {
+                select.value = 'enp7s0';
             } else if (select.options.length > 0) {
                 select.value = select.options[0].value;
             }
@@ -877,8 +896,6 @@
 
             const chartSelect = document.getElementById('chartMonthFilter');
             const tableSelect = document.getElementById('tableMonthFilter');
-            const prevChartVal = chartSelect.value || 'all';
-            const prevTableVal = tableSelect.value || 'all';
 
             const months = iface.traffic.month || [];
             // Sort newest first
@@ -887,22 +904,34 @@
                 return b.date.month - a.date.month;
             });
 
-            let optsHtml = '<option value="all">🌐 Semua Bulan</option>';
+            // Default to newest month (Bulan Ini) on initial load
+            const latestMonthKey = sortedMonths.length > 0
+                ? `${sortedMonths[0].date.year}-${String(sortedMonths[0].date.month).padStart(2, '0')}`
+                : 'all';
+
+            if (!activeMonthFilter) {
+                activeMonthFilter = latestMonthKey;
+            }
+
+            let optsHtml = '';
             sortedMonths.forEach((m, idx) => {
                 const key = `${m.date.year}-${String(m.date.month).padStart(2, '0')}`;
                 const name = `${MONTH_NAMES_ID[m.date.month] || m.date.month} ${m.date.year}`;
                 const isLatest = (idx === 0) ? ' (Bulan Ini)' : (idx === 1 ? ' (Bulan Lalu)' : '');
                 optsHtml += `<option value="${key}">📆 ${name}${isLatest}</option>`;
             });
+            optsHtml += `<option value="all">🌐 Semua Bulan (Akumulasi)</option>`;
 
             chartSelect.innerHTML = optsHtml;
             tableSelect.innerHTML = optsHtml;
 
-            if (chartSelect.querySelector(`option[value="${prevChartVal}"]`)) {
-                chartSelect.value = prevChartVal;
-            }
-            if (tableSelect.querySelector(`option[value="${prevTableVal}"]`)) {
-                tableSelect.value = prevTableVal;
+            if (chartSelect.querySelector(`option[value="${activeMonthFilter}"]`)) {
+                chartSelect.value = activeMonthFilter;
+                tableSelect.value = activeMonthFilter;
+            } else {
+                activeMonthFilter = latestMonthKey;
+                chartSelect.value = latestMonthKey;
+                tableSelect.value = latestMonthKey;
             }
         }
 
@@ -911,13 +940,27 @@
             renderAll();
         }
 
-        function onChartFilterChange() {
+        function onMonthFilterChange(newVal) {
+            activeMonthFilter = newVal;
+            currentPage = 1;
+
+            const chartSelect = document.getElementById('chartMonthFilter');
+            const tableSelect = document.getElementById('tableMonthFilter');
+            if (chartSelect && chartSelect.value !== newVal) chartSelect.value = newVal;
+            if (tableSelect && tableSelect.value !== newVal) tableSelect.value = newVal;
+
             renderChartSection();
+            renderHistoryTable();
+        }
+
+        function onChartFilterChange() {
+            const val = document.getElementById('chartMonthFilter').value;
+            onMonthFilterChange(val);
         }
 
         function onTableFilterChange() {
-            currentPage = 1;
-            renderHistoryTable();
+            const val = document.getElementById('tableMonthFilter').value;
+            onMonthFilterChange(val);
         }
 
         function onPageSizeChange() {
@@ -927,24 +970,28 @@
             renderHistoryTable();
         }
 
-        function setChartTab(tab) {
-            chartTab = tab;
-            document.querySelectorAll('.chart-card .tab-btn').forEach(b => b.classList.remove('active'));
-            if (tab === 'day') document.getElementById('btnTabDay').classList.add('active');
-            if (tab === 'week') document.getElementById('btnTabWeek').classList.add('active');
-            if (tab === 'month') document.getElementById('btnTabMonth').classList.add('active');
-            renderChartSection();
-        }
-
-        function setHistGranularity(granularity) {
-            histGranularity = granularity;
-            document.querySelectorAll('.table-card .tab-btn').forEach(b => b.classList.remove('active'));
-            if (granularity === 'day') document.getElementById('btnHistDay').classList.add('active');
-            if (granularity === 'week') document.getElementById('btnHistWeek').classList.add('active');
-            if (granularity === 'month') document.getElementById('btnHistMonth').classList.add('active');
+        function setGranularity(gran) {
+            activeGranularity = gran;
             currentPage = 1;
+
+            // Sync Chart tab buttons
+            document.querySelectorAll('.chart-card .tab-btn').forEach(b => b.classList.remove('active'));
+            if (gran === 'day') document.getElementById('btnTabDay')?.classList.add('active');
+            if (gran === 'week') document.getElementById('btnTabWeek')?.classList.add('active');
+            if (gran === 'month') document.getElementById('btnTabMonth')?.classList.add('active');
+
+            // Sync Table tab buttons
+            document.querySelectorAll('.table-card .tab-btn').forEach(b => b.classList.remove('active'));
+            if (gran === 'day') document.getElementById('btnHistDay')?.classList.add('active');
+            if (gran === 'week') document.getElementById('btnHistWeek')?.classList.add('active');
+            if (gran === 'month') document.getElementById('btnHistMonth')?.classList.add('active');
+
+            renderChartSection();
             renderHistoryTable();
         }
+
+        function setChartTab(tab) { setGranularity(tab); }
+        function setHistGranularity(gran) { setGranularity(gran); }
 
         function toggleChartType() {
             chartType = (chartType === 'line') ? 'bar' : 'line';
@@ -1140,53 +1187,124 @@
             });
         }
 
+        function getUnifiedDataset() {
+            const iface = getSelectedInterface();
+            if (!iface || !iface.traffic) return [];
+
+            const now = new Date();
+            const currYear = now.getFullYear();
+            const currMonth = now.getMonth() + 1;
+            const currDay = now.getDate();
+
+            let rawDays = iface.traffic.day ? JSON.parse(JSON.stringify(iface.traffic.day)) : [];
+            let rawMonths = iface.traffic.month ? JSON.parse(JSON.stringify(iface.traffic.month)) : [];
+
+            // Sync today's item with real-time app usage if cachedAppData is newer
+            let todayRx = 0, todayTx = 0;
+            const todayItem = rawDays.find(d => d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay);
+            if (todayItem) {
+                todayRx = todayItem.rx;
+                todayTx = todayItem.tx;
+            }
+            if (cachedAppData) {
+                if (cachedAppData.total_rx > todayRx) todayRx = cachedAppData.total_rx;
+                if (cachedAppData.total_tx > todayTx) todayTx = cachedAppData.total_tx;
+            }
+            if (todayItem) {
+                todayItem.rx = todayRx;
+                todayItem.tx = todayTx;
+            } else if (todayRx > 0 || todayTx > 0) {
+                rawDays.push({
+                    date: { year: currYear, month: currMonth, day: currDay },
+                    rx: todayRx,
+                    tx: todayTx,
+                    timestamp: Math.floor(now.getTime() / 1000)
+                });
+            }
+
+            // Also sync current month
+            const currMonthItem = rawMonths.find(m => m.date.year === currYear && m.date.month === currMonth);
+            if (currMonthItem && todayItem) {
+                const vnstatTodayRx = iface.traffic.day?.find(d => d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay)?.rx || 0;
+                const vnstatTodayTx = iface.traffic.day?.find(d => d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay)?.tx || 0;
+                if (todayRx > vnstatTodayRx) currMonthItem.rx += (todayRx - vnstatTodayRx);
+                if (todayTx > vnstatTodayTx) currMonthItem.tx += (todayTx - vnstatTodayTx);
+            }
+
+            if (activeGranularity === 'day') {
+                let days = rawDays;
+                if (activeMonthFilter !== 'all') {
+                    const [fYear, fMonth] = activeMonthFilter.split('-').map(Number);
+                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
+                }
+                return days.map(d => {
+                    const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
+                    const dayName = DAY_NAMES_ID[dt.getDay()] || '';
+                    const isToday = (d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay);
+                    return {
+                        key: `${d.date.year}-${d.date.month}-${d.date.day}`,
+                        chartLabel: `${d.date.day} ${MONTH_NAMES_SHORT[d.date.month]} (${dayName.slice(0,3)})`,
+                        tableTitle: `${dayName}, ${d.date.day} ${MONTH_NAMES_ID[d.date.month]} ${d.date.year}`,
+                        isToday: isToday,
+                        rx: d.rx || 0,
+                        tx: d.tx || 0,
+                        total: (d.rx || 0) + (d.tx || 0),
+                        timestamp: d.timestamp || dt.getTime()
+                    };
+                });
+            } else if (activeGranularity === 'week') {
+                let days = rawDays;
+                if (activeMonthFilter !== 'all') {
+                    const [fYear, fMonth] = activeMonthFilter.split('-').map(Number);
+                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
+                }
+                const weeks = groupDaysIntoWeeks(days);
+                return weeks.map(w => ({
+                    key: w.key,
+                    chartLabel: w.shortLabel,
+                    tableTitle: w.label,
+                    isToday: false,
+                    rx: w.rx,
+                    tx: w.tx,
+                    total: w.total
+                }));
+            } else if (activeGranularity === 'month') {
+                let months = rawMonths;
+                if (activeMonthFilter !== 'all') {
+                    const [fYear, fMonth] = activeMonthFilter.split('-').map(Number);
+                    months = months.filter(m => m.date.year === fYear && m.date.month === fMonth);
+                }
+                return months.map(m => {
+                    const isCurr = (m.date.year === currYear && m.date.month === currMonth);
+                    return {
+                        key: `${m.date.year}-${m.date.month}`,
+                        chartLabel: `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`,
+                        tableTitle: `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`,
+                        isCurrentMonth: isCurr,
+                        rx: m.rx || 0,
+                        tx: m.tx || 0,
+                        total: (m.rx || 0) + (m.tx || 0)
+                    };
+                });
+            }
+            return [];
+        }
+
         // ==========================================
         // 3. Flicker-Free Chart Rendering
         // ==========================================
         function renderChartSection(forceRebuild = false) {
             if (typeof Chart === 'undefined') return;
-            const iface = getSelectedInterface();
-            if (!iface || !iface.traffic) return;
-
             const canvas = document.getElementById('usageChart');
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
 
-            const monthFilter = document.getElementById('chartMonthFilter').value;
-            let days = iface.traffic.day || [];
-            let months = iface.traffic.month || [];
+            const dataset = getUnifiedDataset();
+            const labels = dataset.map(item => item.chartLabel);
+            const rxDataMB = dataset.map(item => Number((item.rx / (1024 * 1024)).toFixed(2)));
+            const txDataMB = dataset.map(item => Number((item.tx / (1024 * 1024)).toFixed(2)));
 
-            // Apply Month Filter if not 'all'
-            if (monthFilter !== 'all') {
-                const [fYear, fMonth] = monthFilter.split('-').map(Number);
-                days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
-                months = months.filter(m => m.date.year === fYear && m.date.month === fMonth);
-            }
-
-            let labels = [];
-            let rxDataMB = [];
-            let txDataMB = [];
-
-            if (chartTab === 'day') {
-                labels = days.map(d => {
-                    const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
-                    const dayName = DAY_NAMES_ID[dt.getDay()] || '';
-                    return `${d.date.day} ${MONTH_NAMES_SHORT[d.date.month]} (${dayName.slice(0,3)})`;
-                });
-                rxDataMB = days.map(d => Number((d.rx / (1024 * 1024)).toFixed(2)));
-                txDataMB = days.map(d => Number((d.tx / (1024 * 1024)).toFixed(2)));
-            } else if (chartTab === 'week') {
-                const weeks = groupDaysIntoWeeks(days);
-                labels = weeks.map(w => w.shortLabel);
-                rxDataMB = weeks.map(w => Number((w.rx / (1024 * 1024)).toFixed(2)));
-                txDataMB = weeks.map(w => Number((w.tx / (1024 * 1024)).toFixed(2)));
-            } else if (chartTab === 'month') {
-                labels = months.map(m => `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`);
-                rxDataMB = months.map(m => Number((m.rx / (1024 * 1024)).toFixed(2)));
-                txDataMB = months.map(m => Number((m.tx / (1024 * 1024)).toFixed(2)));
-            }
-
-            const stateKey = `${chartTab}_${monthFilter}_${chartType}_${labels.join('|')}_${rxDataMB.join(',')}_${txDataMB.join(',')}`;
+            const stateKey = `${activeGranularity}_${activeMonthFilter}_${chartType}_${labels.join('|')}_${rxDataMB.join(',')}_${txDataMB.join(',')}`;
             if (!forceRebuild && stateKey === lastChartStateKey && chartInstance) {
                 return; // Nothing changed, avoid re-rendering
             }
@@ -1369,81 +1487,17 @@
         // 5. History Table with Pagination & Granularity
         // ==========================================
         function renderHistoryTable() {
-            const iface = getSelectedInterface();
             const tbody = document.getElementById('tableBody');
-            if (!iface || !iface.traffic) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Data tidak tersedia.</td></tr>';
-                return;
-            }
-
-            const monthFilter = document.getElementById('tableMonthFilter').value;
-            let items = [];
-
-            const now = new Date();
-            const currYear = now.getFullYear();
-            const currMonth = now.getMonth() + 1;
-            const currDay = now.getDate();
-
-            if (histGranularity === 'day') {
-                let days = iface.traffic.day || [];
-                if (monthFilter !== 'all') {
-                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
-                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
-                }
-                items = days.map(d => {
-                    const dt = new Date(d.date.year, d.date.month - 1, d.date.day);
-                    const dayName = DAY_NAMES_ID[dt.getDay()] || '';
-                    const isToday = (d.date.year === currYear && d.date.month === currMonth && d.date.day === currDay);
-                    return {
-                        title: `${dayName}, ${d.date.day} ${MONTH_NAMES_ID[d.date.month]} ${d.date.year}`,
-                        isToday: isToday,
-                        rx: d.rx || 0,
-                        tx: d.tx || 0,
-                        total: (d.rx || 0) + (d.tx || 0),
-                        timestamp: d.timestamp || dt.getTime()
-                    };
-                });
-            } else if (histGranularity === 'week') {
-                let days = iface.traffic.day || [];
-                if (monthFilter !== 'all') {
-                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
-                    days = days.filter(d => d.date.year === fYear && d.date.month === fMonth);
-                }
-                const weeks = groupDaysIntoWeeks(days);
-                items = weeks.map(w => ({
-                    title: w.label,
-                    rx: w.rx,
-                    tx: w.tx,
-                    total: w.total,
-                    isToday: false
-                }));
-            } else if (histGranularity === 'month') {
-                let months = iface.traffic.month || [];
-                if (monthFilter !== 'all') {
-                    const [fYear, fMonth] = monthFilter.split('-').map(Number);
-                    months = months.filter(m => m.date.year === fYear && m.date.month === fMonth);
-                }
-                items = months.map(m => {
-                    const isCurr = (m.date.year === currYear && m.date.month === currMonth);
-                    return {
-                        title: `${MONTH_NAMES_ID[m.date.month]} ${m.date.year}`,
-                        rx: m.rx || 0,
-                        tx: m.tx || 0,
-                        total: (m.rx || 0) + (m.tx || 0),
-                        isCurrentMonth: isCurr
-                    };
-                });
-            }
-
-            // Display in reverse order (newest first)
-            const sortedItems = [...items].reverse();
-
-            if (sortedItems.length === 0) {
+            const dataset = getUnifiedDataset();
+            if (!dataset || dataset.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 1.5rem; color: var(--text-muted);">Tidak ada data histori untuk periode ini.</td></tr>';
                 document.getElementById('pageInfo').textContent = 'Menampilkan 0 data';
                 document.getElementById('pageCurrentLabel').textContent = '0 / 0';
                 return;
             }
+
+            // Display in reverse order (newest first)
+            const sortedItems = [...dataset].reverse();
 
             // Pagination calculation
             const totalItems = sortedItems.length;
@@ -1471,7 +1525,7 @@
                     <td class="mono-val" style="color: var(--text-muted);">${startIndex + idx + 1}</td>
                     <td>
                         <div class="badge-date">
-                            <span>${item.title}</span>
+                            <span>${item.tableTitle}</span>
                             ${pillBadge}
                         </div>
                     </td>
